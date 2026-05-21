@@ -2,164 +2,18 @@
 BAC BO BOT - AGENTE Z3 + NEURAL PREDICTOR v1.0
 SISTEMA COMPLETAMENTE NOVO - ABANDONA ESTRATÉGIAS ANTIGAS
 
+AGENTES IMPLEMENTADOS:
+1. AGENTE Z3 - Recupera estado do MT19937 (individual)
+2. AGENTE PREDITOR - Gera previsões determinísticas
+3. AGENTE VALIDADOR - Verifica previsões contra realidade
+4. AGENTE COLETIVO (EM MASSA) - Processa lotes de rodadas em paralelo
+
 APIs configuradas:
 1. API_DIRETO: https://api-cs.casino.org/svc-evolution-game-events/api/bacbo?page=0&size=10&sort=data.settledAt,desc
 2. API_LATEST: https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/latest
 3. API_BACKUP: https://api-cs.casino.org/svc-evolution-game-events/api/bacbo
 
 ATUALIZAÇÃO: 0.3 segundos entre cada requisição
-
-================================================================================
-📊 EXPLICAÇÃO DAS TABELAS DO BANCO DE DADOS
-================================================================================
-
-O sistema cria 3 tabelas principais no PostgreSQL:
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1. TABELA rodadas                                                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Armazena cada rodada coletada das APIs                                      │
-│                                                                             │
-│ Campos:                                                                     │
-│   - id: VARCHAR(50) PRIMARY KEY           → ID único da rodada             │
-│   - data_hora: TIMESTAMP NOT NULL         → Data/hora do salvamento        │
-│   - p1, p2, b1, b2: INT NOT NULL          → Dados individuais (1-6)        │
-│   - player_score: INT NOT NULL            → p1 + p2                        │
-│   - banker_score: INT NOT NULL            → b1 + b2                        │
-│   - resultado: VARCHAR(10) NOT NULL       → PLAYER/BANKER/TIE              │
-│   - fonte, api_origem: VARCHAR            → Qual API forneceu o dado       │
-│   - created_at: TIMESTAMP                 → Quando foi inserido no banco   │
-│                                                                             │
-│ Índice: idx_rodadas_data (data_hora DESC) → Busca mais rápida              │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2. TABELA previsoes                                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Armazena as previsões feitas pelo Agente Z3                                 │
-│                                                                             │
-│ Campos:                                                                     │
-│   - id: SERIAL PRIMARY KEY                → Auto-incremento                │
-│   - rodada_id: VARCHAR(50)                → Referência à rodada            │
-│   - p1, p2, b1, b2: INT NOT NULL          → Dados previstos (1-6)          │
-│   - player_score: INT NOT NULL            → Soma prevista do Player        │
-│   - banker_score: INT NOT NULL            → Soma prevista do Banker        │
-│   - resultado: VARCHAR(10) NOT NULL       → Resultado previsto             │
-│   - confianca: DECIMAL(5,2)               → Confiança da previsão (0-100)  │
-│   - acertou: BOOLEAN                      → TRUE/False após validação      │
-│   - timestamp: TIMESTAMP                  → Quando a previsão foi gerada   │
-│                                                                             │
-│ Índice: idx_previsoes_acertou (acertou)   → Estatísticas rápidas           │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ 3. TABELA estado_z3                                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Salva o estado do gerador Mersenne Twister recuperado pelo Z3               │
-│                                                                             │
-│ Campos:                                                                     │
-│   - id: SERIAL PRIMARY KEY                → Auto-incremento                │
-│   - estado_json: TEXT NOT NULL            → 624 números em JSON            │
-│   - posicao: INT NOT NULL                 → Posição atual (0-623)          │
-│   - rounds_usados: INT NOT NULL           → Quantos rounds usados (156)    │
-│   - criado_em: TIMESTAMP                  → Quando foi criado              │
-│   - ativo: BOOLEAN DEFAULT TRUE           → Estado ativo atual             │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-================================================================================
-📝 EXEMPLO DE DADOS SALVOS
-================================================================================
-
-rodadas (quando uma rodada é coletada):
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ id: "6a0ee4d3c2978340d6f24dbc"                                              │
-│ data_hora: "2026-05-21 15:30:45"                                            │
-│ p1: 2, p2: 3, b1: 4, b2: 2                                                  │
-│ player_score: 5, banker_score: 6                                            │
-│ resultado: "BANKER"                                                         │
-│ fonte: "api_direto"                                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-previsoes (antes da rodada acontecer):
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ rodada_id: "6a0ee4d3c2978340d6f24dbc"                                       │
-│ p1: 3, p2: 4, b1: 2, b2: 5                                                  │
-│ player_score: 7, banker_score: 7                                            │
-│ resultado: "TIE"                                                            │
-│ confianca: 85.50                                                            │
-│ acertou: null  ← Aguardando resultado real                                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-Após a rodada real acontecer, o campo acertou é atualizado para TRUE ou FALSE
-
-================================================================================
-🔄 FLUXO DE FUNCIONAMENTO
-================================================================================
-
-1. A CADA 0.3 SEGUNDOS:
-   ├── ColetorAPI.buscar_todas_apis()
-   │   ├── API_DIRETO → lista de rodadas
-   │   ├── API_LATEST → 1 rodada
-   │   └── API_BACKUP → 1 rodada
-   │
-   ├── Para cada rodada nova:
-   │   ├── db.salvar_rodada() → INSERE NA TABELA rodadas
-   │   └── processar_rodada() → Verifica previsões
-   │
-   └── Se estado Z3 recuperado:
-       ├── Verifica previsão vs realidade
-       └── db.atualizar_acerto_previsao() → UPDATE tabela previsoes
-
-2. QUANDO 156 RODADAS SÃO COLETADAS:
-   ├── AgenteZ3.recuperar_estado_dos_dados()
-   │   ├── Pega últimas 156 rodadas do banco
-   │   ├── Aplica Z3 para resolver equações
-   │   ├── Recupera estado MT19937 (624 números)
-   │   └── db.salvar_estado_z3() → INSERE NA TABELA estado_z3
-   │
-   └── Gera primeiras 20 previsões → TABELA previsoes
-
-3. A PARTIR DE ENTÃO:
-   ├── Cada nova rodada valida a previsão anterior
-   ├── Acertos/Erros são registrados
-   └── Novas previsões são geradas continuamente
-
-================================================================================
-📊 CONSULTAS ÚTEIS PARA MONITORAMENTO
-================================================================================
-
--- Ver últimas rodadas com suas previsões
-SELECT r.id, r.p1, r.p2, r.b1, r.b2, r.resultado,
-       p.p1 as p_p1, p.p2 as p_p2, p.b1 as p_b1, p.b2 as p_b2,
-       p.acertou
-FROM rodadas r
-LEFT JOIN previsoes p ON r.id = p.rodada_id
-ORDER BY r.data_hora DESC
-LIMIT 10;
-
--- Estatísticas de acerto por API
-SELECT api_origem, COUNT(*) as total, 
-       SUM(CASE WHEN p.acertou THEN 1 ELSE 0 END) as acertos
-FROM rodadas r
-JOIN previsoes p ON r.id = p.rodada_id
-GROUP BY api_origem;
-
--- Ver o estado ativo do Z3
-SELECT estado_json, posicao, rounds_usados, criado_em
-FROM estado_z3
-WHERE ativo = TRUE;
-
--- Precisão das últimas 100 previsões
-SELECT 
-    COUNT(*) as total,
-    SUM(CASE WHEN acertou THEN 1 ELSE 0 END) as acertos,
-    ROUND(100.0 * SUM(CASE WHEN acertou THEN 1 ELSE 0 END) / COUNT(*), 2) as precisao
-FROM previsoes 
-WHERE acertou IS NOT NULL
-ORDER BY id DESC
-LIMIT 100;
-
-================================================================================
 """
 
 import os
@@ -168,9 +22,10 @@ import time
 import threading
 import requests
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Tuple, Dict, Any
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 
 # Importações forçadas do Z3
@@ -207,6 +62,11 @@ PORT = int(os.environ.get("PORT", 5000))
 
 # TEMPO DE ATUALIZAÇÃO: 0.3 SEGUNDOS
 UPDATE_INTERVAL = 0.3
+
+# CONFIGURAÇÕES DO AGENTE EM MASSA
+BATCH_SIZE = 50  # Tamanho do lote para processamento em massa
+PARALLEL_WORKERS = 4  # Número de workers paralelos
+VALIDATION_BATCH = 20  # Validar últimas 20 rodadas em lote
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -297,29 +157,28 @@ class Rodada:
     api_origem: str = ""
 
 
+@dataclass
+class ResultadoValidacao:
+    """Resultado da validação em massa"""
+    total_validados: int
+    acertos: int
+    erros: int
+    precisao: float
+    desvio_detectado: bool
+    mensagem: str = ""
+
+
 # =============================================================================
 # DATABASE MANAGER
 # =============================================================================
 
 class DatabaseManager:
-    """
-    GERENCIADOR DO BANCO DE DADOS
-    
-    RESPONSÁVEL POR:
-    - Criar as tabelas (rodadas, previsoes, estado_z3)
-    - Salvar rodadas coletadas das APIs
-    - Salvar previsões feitas pelo Agente Z3
-    - Atualizar acertos das previsões
-    - Salvar estado recuperado do MT19937
-    - Consultar históricos e estatísticas
-    """
-    
     def __init__(self, database_url: str):
         self.database_url = database_url
         self._init_tables()
+        self._init_massive_tables()
     
     def _get_connection(self):
-        """Estabelece conexão com PostgreSQL"""
         if not self.database_url:
             return None
         try:
@@ -339,13 +198,6 @@ class DatabaseManager:
             return None
     
     def _init_tables(self):
-        """
-        CRIA AS TABELAS NO BANCO DE DADOS
-        
-        Tabela 1: rodadas - Armazena cada rodada coletada
-        Tabela 2: previsoes - Armazena previsões do Z3
-        Tabela 3: estado_z3 - Armazena estado recuperado do MT19937
-        """
         conn = self._get_connection()
         if not conn:
             logger.warning("⚠️ Sem conexão com banco, usando memória")
@@ -353,8 +205,6 @@ class DatabaseManager:
         try:
             cur = conn.cursor()
             
-            # ===== TABELA 1: rodadas =====
-            # Guarda cada rodada real coletada da API
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS rodadas (
                     id VARCHAR(50) PRIMARY KEY,
@@ -372,8 +222,6 @@ class DatabaseManager:
                 )
             """)
             
-            # ===== TABELA 2: previsoes =====
-            # Guarda as previsões feitas pelo Agente Z3
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS previsoes (
                     id SERIAL PRIMARY KEY,
@@ -391,8 +239,6 @@ class DatabaseManager:
                 )
             """)
             
-            # ===== TABELA 3: estado_z3 =====
-            # Guarda o estado do Mersenne Twister recuperado pelo Z3
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS estado_z3 (
                     id SERIAL PRIMARY KEY,
@@ -404,7 +250,6 @@ class DatabaseManager:
                 )
             """)
             
-            # ÍNDICES PARA ACELERAR CONSULTAS
             cur.execute("CREATE INDEX IF NOT EXISTS idx_rodadas_data ON rodadas(data_hora DESC)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_previsoes_acertou ON previsoes(acertou)")
             
@@ -416,22 +261,53 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def _init_massive_tables(self):
+        """Tabelas adicionais para o Agente em Massa"""
+        conn = self._get_connection()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            
+            # Tabela de validações em massa
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS validacoes_massa (
+                    id SERIAL PRIMARY KEY,
+                    batch_id VARCHAR(50) NOT NULL,
+                    total_validados INT NOT NULL,
+                    acertos INT NOT NULL,
+                    erros INT NOT NULL,
+                    precisao DECIMAL(5,2) NOT NULL,
+                    desvio_detectado BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            
+            # Tabela de estatísticas por lote
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS estatisticas_lote (
+                    id SERIAL PRIMARY KEY,
+                    lote_inicio TIMESTAMP NOT NULL,
+                    lote_fim TIMESTAMP NOT NULL,
+                    total_rodadas INT NOT NULL,
+                    total_previsoes INT NOT NULL,
+                    precisao_media DECIMAL(5,2),
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_validacoes_batch ON validacoes_massa(batch_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_estatisticas_lote ON estatisticas_lote(lote_fim DESC)")
+            
+            conn.commit()
+            cur.close()
+            logger.info("✅ Tabelas do Agente em Massa criadas")
+        except Exception as e:
+            logger.error(f"Erro tabelas massa: {e}")
+        finally:
+            conn.close()
+    
     def salvar_rodada(self, rodada: Rodada) -> bool:
-        """
-        SALVA UMA RODADA NA TABELA rodadas
-        
-        Exemplo do que é salvo:
-        {
-            "id": "6a0ee4d3c2978340d6f24dbc",
-            "data_hora": "2026-05-21 15:30:45",
-            "p1": 2, "p2": 3, "b1": 4, "b2": 2,
-            "player_score": 5,
-            "banker_score": 6,
-            "resultado": "BANKER",
-            "fonte": "api_direto",
-            "api_origem": "API_DIRETO"
-        }
-        """
         conn = self._get_connection()
         if not conn:
             return False
@@ -455,20 +331,6 @@ class DatabaseManager:
             conn.close()
     
     def salvar_previsao(self, rodada_id: str, dados: DadosRodada, confianca: float) -> bool:
-        """
-        SALVA UMA PREVISÃO NA TABELA previsoes
-        
-        Exemplo:
-        {
-            "rodada_id": "6a0ee4d3c2978340d6f24dbc",
-            "p1": 3, "p2": 4, "b1": 2, "b2": 5,
-            "player_score": 7,
-            "banker_score": 7,
-            "resultado": "TIE",
-            "confianca": 85.5,
-            "acertou": null  ← Aguardando resultado real
-        }
-        """
         conn = self._get_connection()
         if not conn:
             return False
@@ -490,11 +352,6 @@ class DatabaseManager:
             conn.close()
     
     def atualizar_acerto_previsao(self, rodada_id: str, acertou: bool):
-        """
-        ATUALIZA O CAMPO acertou NA TABELA previsoes
-        
-        Chamado quando a rodada real acontece e podemos validar a previsão
-        """
         conn = self._get_connection()
         if not conn:
             return
@@ -503,28 +360,18 @@ class DatabaseManager:
             cur.execute("UPDATE previsoes SET acertou = %s WHERE rodada_id = %s", (acertou, rodada_id))
             conn.commit()
             cur.close()
-            logger.debug(f"✅ Previsão {rodada_id}: acertou={acertou}")
         except Exception as e:
             logger.error(f"Erro atualizar acerto: {e}")
         finally:
             conn.close()
     
     def salvar_estado_z3(self, estado: List[int], posicao: int, rounds_usados: int) -> bool:
-        """
-        SALVA O ESTADO RECUPERADO DO MT19937 NA TABELA estado_z3
-        
-        estado: lista de 624 inteiros de 32 bits
-        posicao: posição atual no estado (0-623)
-        rounds_usados: quantos rounds usaram para recuperar (156)
-        """
         conn = self._get_connection()
         if not conn:
             return False
         try:
             cur = conn.cursor()
-            # Desativa estados anteriores
             cur.execute("UPDATE estado_z3 SET ativo = FALSE WHERE ativo = TRUE")
-            # Salva novo estado
             cur.execute("""
                 INSERT INTO estado_z3 (estado_json, posicao, rounds_usados, ativo)
                 VALUES (%s, %s, %s, TRUE)
@@ -539,12 +386,28 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def salvar_validacao_massa(self, batch_id: str, resultado: ResultadoValidacao) -> bool:
+        """Salva resultado de validação em massa"""
+        conn = self._get_connection()
+        if not conn:
+            return False
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO validacoes_massa (batch_id, total_validados, acertos, erros, precisao, desvio_detectado)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (batch_id, resultado.total_validados, resultado.acertos, 
+                  resultado.erros, resultado.precisao, resultado.desvio_detectado))
+            conn.commit()
+            cur.close()
+            return True
+        except Exception as e:
+            logger.error(f"Erro salvar validacao massa: {e}")
+            return False
+        finally:
+            conn.close()
+    
     def get_historico_rodadas(self, limit: int = 200) -> List[List[int]]:
-        """
-        BUSCA HISTÓRICO DE RODADAS PARA RECUPERAÇÃO DO ESTADO
-        
-        Retorna lista de [p1, p2, b1, b2] ordenado do mais antigo para o mais novo
-        """
         conn = self._get_connection()
         if not conn:
             return []
@@ -563,8 +426,64 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def get_rodadas_para_validacao(self, limit: int = 50) -> List[Dict]:
+        """Busca rodadas com previsões não validadas para validação em massa"""
+        conn = self._get_connection()
+        if not conn:
+            return []
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT r.id, r.p1, r.p2, r.b1, r.b2, r.resultado,
+                       p.id as previsao_id, p.p1 as p_p1, p.p2 as p_p2, 
+                       p.b1 as p_b1, p.b2 as p_b2
+                FROM rodadas r
+                JOIN previsoes p ON r.id = p.rodada_id
+                WHERE p.acertou IS NULL
+                ORDER BY r.data_hora ASC
+                LIMIT %s
+            """, (limit,))
+            rows = cur.fetchall()
+            cur.close()
+            
+            resultados = []
+            for r in rows:
+                resultados.append({
+                    'rodada_id': r[0],
+                    'real': [r[1], r[2], r[3], r[4]],
+                    'resultado_real': r[5],
+                    'previsao_id': r[6],
+                    'previsto': [r[7], r[8], r[9], r[10]]
+                })
+            return resultados
+        except Exception as e:
+            logger.error(f"Erro get_rodadas_validacao: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def atualizar_previsoes_em_massa(self, validacoes: List[Tuple[str, bool]]) -> int:
+        """Atualiza múltiplas previsões de uma vez"""
+        conn = self._get_connection()
+        if not conn:
+            return 0
+        try:
+            cur = conn.cursor()
+            atualizadas = 0
+            for previsao_id, acertou in validacoes:
+                cur.execute("UPDATE previsoes SET acertou = %s WHERE id = %s", (acertou, previsao_id))
+                atualizadas += 1
+            conn.commit()
+            cur.close()
+            logger.info(f"✅ {atualizadas} previsões atualizadas em massa")
+            return atualizadas
+        except Exception as e:
+            logger.error(f"Erro atualizar previsoes massa: {e}")
+            return 0
+        finally:
+            conn.close()
+    
     def get_ultimas_rodadas(self, limit: int = 20) -> List[Dict]:
-        """Retorna as últimas N rodadas para o frontend"""
         conn = self._get_connection()
         if not conn:
             return []
@@ -587,14 +506,6 @@ class DatabaseManager:
             conn.close()
     
     def get_estatisticas_previsoes(self) -> Dict:
-        """
-        ESTATÍSTICAS DAS PREVISÕES
-        
-        Retorna:
-        - total: total de previsões já validadas
-        - acertos: quantas acertaram
-        - precisao: porcentagem de acertos
-        """
         conn = self._get_connection()
         if not conn:
             return {'total': 0, 'acertos': 0, 'precisao': 0}
@@ -619,7 +530,6 @@ class DatabaseManager:
             conn.close()
     
     def get_total_rodadas(self) -> int:
-        """Retorna o total de rodadas no banco"""
         conn = self._get_connection()
         if not conn:
             return 0
@@ -633,6 +543,37 @@ class DatabaseManager:
             return 0
         finally:
             conn.close()
+    
+    def get_estatisticas_massa(self) -> Dict:
+        """Retorna estatísticas das validações em massa"""
+        conn = self._get_connection()
+        if not conn:
+            return {}
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT 
+                    COUNT(*) as total_batches,
+                    AVG(precisao) as precisao_media,
+                    SUM(acertos) as total_acertos,
+                    SUM(erros) as total_erros,
+                    SUM(CASE WHEN desvio_detectado THEN 1 ELSE 0 END) as desvios_detectados
+                FROM validacoes_massa
+            """)
+            row = cur.fetchone()
+            cur.close()
+            
+            return {
+                'total_batches': row[0] or 0,
+                'precisao_media': round(row[1], 2) if row[1] else 0,
+                'total_acertos': row[2] or 0,
+                'total_erros': row[3] or 0,
+                'desvios_detectados': row[4] or 0
+            }
+        except Exception as e:
+            return {}
+        finally:
+            conn.close()
 
 
 # =============================================================================
@@ -640,20 +581,6 @@ class DatabaseManager:
 # =============================================================================
 
 class AgenteZ3:
-    """
-    AGENTE Z3 - Responsável por recuperar o estado do Mersenne Twister
-    
-    Funcionamento:
-    1. Coleta 156 rodadas do banco (624 outputs de dados)
-    2. Aplica restrições Z3 para encontrar o estado interno do MT19937
-    3. Uma vez recuperado, pode prever infinitas rodadas futuras
-    
-    Configuração comprovada em teste:
-    - Mapeamento: Lemire64
-    - Ordem: p1, p2, b1, b2
-    - Offset: 0
-    """
-    
     def __init__(self, db: DatabaseManager):
         self.db = db
         self.estado_recuperado = None
@@ -663,21 +590,9 @@ class AgenteZ3:
         self.previsoes_cache = []
     
     def recuperar_estado_do_banco(self) -> bool:
-        """Tenta recuperar estado salvo do banco"""
         return False
     
     def recuperar_estado_dos_dados(self) -> Optional[List[int]]:
-        """
-        RECUPERA O ESTADO DO MT19937 USANDO Z3
-        
-        Processo:
-        1. Busca 156 rodadas do banco
-        2. Converte para 624 outputs na ordem configurada
-        3. Cria 624 variáveis para o estado
-        4. Adiciona restrições: temper(state[i]) -> dado observado
-        5. Resolve com Z3 (SAT/UNSAT)
-        6. Se SAT, extrai o estado do modelo
-        """
         historico = self.db.get_historico_rodadas(ROUNDS_FOR_RECOVERY + 50)
         
         if len(historico) < ROUNDS_FOR_RECOVERY:
@@ -686,10 +601,8 @@ class AgenteZ3:
         
         logger.info(f"[Z3] Iniciando recuperação com {len(historico)} rodadas...")
         
-        # Pega bloco de 156 rodadas
         bloco = historico[:ROUNDS_FOR_RECOVERY]
         
-        # Achata os dados na ordem ORDER
         outputs = []
         for r in bloco:
             for key in ORDER:
@@ -699,17 +612,16 @@ class AgenteZ3:
                     outputs.append(r[1])
                 elif key == 'b1':
                     outputs.append(r[2])
-                else:  # b2
+                else:
                     outputs.append(r[3])
         
         N = 624
         state = [BitVec(f's_{i}', 32) for i in range(N)]
         s = Then('simplify', 'bit-blast', 'sat').solver()
-        s.set("timeout", 300000)  # 5 minutos
+        s.set("timeout", 300000)
         
         logger.info(f"[Z3] Adicionando {len(outputs)} restrições...")
         
-        # Adiciona restrições para cada output
         for i, dice_value in enumerate(outputs[:N]):
             mt_val = temper(state[i % N])
             expected = lemire64_mapping(mt_val)
@@ -736,7 +648,6 @@ class AgenteZ3:
             self.estado_atual = list(estado)
             self.posicao_atual = 0
             
-            # Salva no banco
             self.db.salvar_estado_z3(estado, 0, ROUNDS_FOR_RECOVERY)
             
             return estado
@@ -745,7 +656,6 @@ class AgenteZ3:
         return None
     
     def _twist(self, state: List[int]) -> List[int]:
-        """Atualiza o estado MT19937 (operação twist)"""
         new = list(state)
         for i in range(624):
             y = (new[i] & 0x80000000) + (new[(i+1) % 624] & 0x7FFFFFFF)
@@ -755,7 +665,6 @@ class AgenteZ3:
         return new
     
     def _temper_py(self, y: int) -> int:
-        """Temperagem em Python puro (operação inversa do untemper)"""
         y ^= (y >> 11)
         y ^= (y << 7) & 0x9D2C5680
         y ^= (y << 15) & 0xEFC60000
@@ -763,11 +672,9 @@ class AgenteZ3:
         return y & 0xFFFFFFFF
     
     def _mt_to_dice(self, v: int) -> int:
-        """Converte valor MT19937 para dado (1-6) usando Lemire64"""
         return ((v * 6) >> 32) + 1
     
     def avancar_estado(self, quantidade_rounds: int = 1):
-        """Avança o estado interno em N rounds (4 dados por round)"""
         if not self.estado_atual:
             return
         
@@ -783,11 +690,6 @@ class AgenteZ3:
         self.posicao_atual = idx
     
     def prever_proximas(self, quantidade: int = 20) -> List[DadosRodada]:
-        """
-        PREVE AS PRÓXIMAS N RODADAS
-        
-        Usa o estado atual do MT19937 para gerar os próximos dados
-        """
         if not self.estado_atual:
             return []
         
@@ -810,14 +712,40 @@ class AgenteZ3:
         self.previsoes_cache = previsoes
         return previsoes
     
-    def verificar_rodada(self, dados_reais: DadosRodada, dados_previstos: DadosRodada = None) -> Tuple[bool, DadosRodada]:
-        """
-        VERIFICA SE OS DADOS REAIS CORRESPONDEM À PREVISÃO
+    def prever_rodada_especifica(self, quantidade_avancar: int) -> DadosRodada:
+        """Preve uma rodada específica após avançar N rodadas"""
+        if not self.estado_atual:
+            return None
         
-        Retorna:
-        - acertou: True/False
-        - dados_previstos: a previsão que foi usada
-        """
+        # Salva estado atual
+        estado_salvo = list(self.estado_atual)
+        pos_salva = self.posicao_atual
+        
+        # Avança até a rodada desejada
+        self.avancar_estado(quantidade_avancar)
+        
+        # Gera previsão da próxima rodada
+        rng = list(self.estado_atual)
+        idx = self.posicao_atual
+        
+        dados = []
+        for _ in range(4):
+            if idx >= 624:
+                rng = self._twist(rng)
+                idx = 0
+            val = self._temper_py(rng[idx])
+            dados.append(self._mt_to_dice(val))
+            idx += 1
+        
+        previsao = DadosRodada(p1=dados[0], p2=dados[1], b1=dados[2], b2=dados[3])
+        
+        # Restaura estado
+        self.estado_atual = estado_salvo
+        self.posicao_atual = pos_salva
+        
+        return previsao
+    
+    def verificar_rodada(self, dados_reais: DadosRodada, dados_previstos: DadosRodada = None) -> Tuple[bool, DadosRodada]:
         if dados_previstos is None:
             if not self.previsoes_cache:
                 return False, None
@@ -827,11 +755,257 @@ class AgenteZ3:
                 return False, None
         
         acertou = dados_reais.to_list() == dados_previstos.to_list()
-        
-        # Atualiza estado para a próxima rodada
         self.avancar_estado(1)
         
         return acertou, dados_previstos
+
+
+# =============================================================================
+# AGENTE EM MASSA (NOVO!)
+# =============================================================================
+
+class AgenteMassivo:
+    """
+    AGENTE EM MASSA - Processa lotes de rodadas em paralelo
+    
+    Funcionalidades:
+    1. Validação em lote de previsões pendentes
+    2. Processamento paralelo com ThreadPoolExecutor
+    3. Detecção de desvios no estado
+    4. Reconstrução automática do estado se necessário
+    5. Estatísticas agregadas por lote
+    """
+    
+    def __init__(self, db: DatabaseManager, agente_z3: AgenteZ3):
+        self.db = db
+        self.agente_z3 = agente_z3
+        self.executor = ThreadPoolExecutor(max_workers=PARALLEL_WORKERS)
+        self.batch_id = 0
+        self.estatisticas_lote = {
+            'total_validado': 0,
+            'acertos': 0,
+            'erros': 0,
+            'precisao_atual': 0
+        }
+    
+    def validar_previsoes_pendentes(self) -> ResultadoValidacao:
+        """
+        Valida todas as previsões pendentes em lote (EM MASSA)
+        Processa em paralelo para maior eficiência
+        """
+        logger.info("[AGENTE MASSA] Iniciando validação em lote...")
+        
+        pendentes = self.db.get_rodadas_para_validacao(VALIDATION_BATCH)
+        
+        if not pendentes:
+            logger.info("[AGENTE MASSA] Nenhuma previsão pendente para validar")
+            return ResultadoValidacao(0, 0, 0, 0, False, "Nenhuma previsão pendente")
+        
+        logger.info(f"[AGENTE MASSA] Encontradas {len(pendentes)} previsões pendentes")
+        
+        # Processa em paralelo
+        resultados_validacao = []
+        
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = []
+            for p in pendentes:
+                future = executor.submit(self._validar_uma_previsao, p)
+                futures.append(future)
+            
+            for future in as_completed(futures):
+                try:
+                    resultado = future.result(timeout=5)
+                    resultados_validacao.append(resultado)
+                except Exception as e:
+                    logger.error(f"[AGENTE MASSA] Erro na validação paralela: {e}")
+        
+        # Atualiza banco em massa
+        atualizacoes = [(r['previsao_id'], r['acertou']) for r in resultados_validacao]
+        self.db.atualizar_previsoes_em_massa(atualizacoes)
+        
+        # Calcula estatísticas
+        total = len(resultados_validacao)
+        acertos = sum(1 for r in resultados_validacao if r['acertou'])
+        erros = total - acertos
+        precisao = (acertos / total * 100) if total > 0 else 0
+        
+        # Verifica desvio (se precisão caiu muito)
+        desvio_detectado = precisao < 50 and total >= 10
+        
+        resultado = ResultadoValidacao(
+            total_validados=total,
+            acertos=acertos,
+            erros=erros,
+            precisao=round(precisao, 2),
+            desvio_detectado=desvio_detectado,
+            mensagem=f"Validados {total} previsões: {acertos} acertos, {erros} erros ({precisao:.1f}%)"
+        )
+        
+        # Salva no banco
+        self.batch_id += 1
+        batch_id_str = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self.batch_id}"
+        self.db.salvar_validacao_massa(batch_id_str, resultado)
+        
+        # Atualiza estatísticas do agente
+        self.estatisticas_lote['total_validado'] += total
+        self.estatisticas_lote['acertos'] += acertos
+        self.estatisticas_lote['erros'] += erros
+        self.estatisticas_lote['precisao_atual'] = (
+            self.estatisticas_lote['acertos'] / self.estatisticas_lote['total_validado'] * 100
+        ) if self.estatisticas_lote['total_validado'] > 0 else 0
+        
+        logger.info(f"[AGENTE MASSA] {resultado.mensagem}")
+        
+        if desvio_detectado:
+            logger.warning("[AGENTE MASSA] ⚠️ DESVIO DETECTADO! Precisão baixa. Reconstruindo estado...")
+            self._reconstruir_estado()
+        
+        return resultado
+    
+    def _validar_uma_previsao(self, pendente: Dict) -> Dict:
+        """Valida uma única previsão (usado em paralelo)"""
+        real = pendente['real']
+        previsto = pendente['previsto']
+        acertou = (real == previsto)
+        
+        return {
+            'previsao_id': pendente['previsao_id'],
+            'acertou': acertou,
+            'rodada_id': pendente['rodada_id']
+        }
+    
+    def _reconstruir_estado(self):
+        """Reconstrói o estado do Z3 quando detecta desvio"""
+        logger.info("[AGENTE MASSA] Reconstruindo estado do Z3...")
+        
+        novo_estado = self.agente_z3.recuperar_estado_dos_dados()
+        
+        if novo_estado:
+            logger.info("[AGENTE MASSA] ✅ Estado reconstruído com sucesso!")
+            # Limpa cache de previsões antigas
+            self.agente_z3.previsoes_cache = []
+            # Gera novas previsões
+            self.agente_z3.prever_proximas(20)
+        else:
+            logger.error("[AGENTE MASSA] ❌ Falha na reconstrução do estado!")
+    
+    def processar_lote_paralelo(self, dados_lote: List[Dict]) -> List[Dict]:
+        """
+        Processa um lote de dados em paralelo
+        Útil para prever múltiplas rodadas futuras simultaneamente
+        """
+        logger.info(f"[AGENTE MASSA] Processando lote de {len(dados_lote)} itens em paralelo...")
+        
+        resultados = []
+        
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = []
+            for item in dados_lote:
+                future = executor.submit(self._processar_item_paralelo, item)
+                futures.append(future)
+            
+            for future in as_completed(futures):
+                try:
+                    resultado = future.result(timeout=10)
+                    resultados.append(resultado)
+                except Exception as e:
+                    logger.error(f"[AGENTE MASSA] Erro no item paralelo: {e}")
+        
+        logger.info(f"[AGENTE MASSA] Lote processado: {len(resultados)} resultados")
+        return resultados
+    
+    def _processar_item_paralelo(self, item: Dict) -> Dict:
+        """Processa um item individual em paralelo"""
+        offset = item.get('offset', 0)
+        previsao = self.agente_z3.prever_rodada_especifica(offset)
+        
+        return {
+            'offset': offset,
+            'previsao': previsao.to_dict() if previsao else None,
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    def validar_em_massa_continuo(self):
+        """Validação contínua em massa (roda em thread separada)"""
+        logger.info("[AGENTE MASSA] Iniciando validação contínua em massa...")
+        
+        while True:
+            try:
+                # Valida a cada 30 segundos ou quando acumular 10+ pendentes
+                pendentes = self.db.get_rodadas_para_validacao(10)
+                
+                if len(pendentes) >= 5:
+                    self.validar_previsoes_pendentes()
+                
+                time.sleep(30)  # Espera 30 segundos entre validações em massa
+                
+            except Exception as e:
+                logger.error(f"[AGENTE MASSA] Erro na validação contínua: {e}")
+                time.sleep(60)
+    
+    def get_estatisticas_massa(self) -> Dict:
+        """Retorna estatísticas do agente em massa"""
+        stats_db = self.db.get_estatisticas_massa()
+        
+        return {
+            'em_massa': {
+                'total_validado_agente': self.estatisticas_lote['total_validado'],
+                'acertos_agente': self.estatisticas_lote['acertos'],
+                'erros_agente': self.estatisticas_lote['erros'],
+                'precisao_agente': round(self.estatisticas_lote['precisao_atual'], 2)
+            },
+            'banco': stats_db,
+            'workers_paralelos': PARALLEL_WORKERS,
+            'batch_size': BATCH_SIZE,
+            'validation_batch': VALIDATION_BATCH
+        }
+
+
+# =============================================================================
+# AGENTE PREDITOR NEURAL
+# =============================================================================
+
+class AgenteNeural:
+    def __init__(self):
+        self.historico_acertos = deque(maxlen=100)
+        self.ultima_taxa_acerto = 0
+        self.alertas = []
+    
+    def registrar_resultado(self, previsao: DadosRodada, real: DadosRodada, acertou: bool):
+        self.historico_acertos.append(1 if acertou else 0)
+        
+        if len(self.historico_acertos) >= 10:
+            taxa = sum(self.historico_acertos) / len(self.historico_acertos) * 100
+            self.ultima_taxa_acerto = taxa
+            
+            if taxa < 50:
+                self.alertas.append({
+                    'tipo': 'BAIXA_PRECISAO',
+                    'mensagem': f'Taxa de acerto abaixo de 50%: {taxa:.1f}%',
+                    'timestamp': datetime.now().isoformat()
+                })
+                logger.warning(f"[NEURAL] Alerta: Baixa precisão ({taxa:.1f}%)")
+    
+    def get_confianca_ajustada(self, confianca_base: float) -> float:
+        if len(self.historico_acertos) < 10:
+            return confianca_base
+        
+        if self.ultima_taxa_acerto < 60:
+            return confianca_base * 0.7
+        elif self.ultima_taxa_acerto > 80:
+            return confianca_base * 1.1
+        
+        return confianca_base
+    
+    def get_estatisticas(self) -> Dict:
+        if not self.historico_acertos:
+            return {'total': 0, 'precisao': 0, 'alertas': []}
+        
+        return {
+            'total': len(self.historico_acertos),
+            'precisao': self.ultima_taxa_acerto,
+            'alertas': self.alertas[-5:] if self.alertas else []
+        }
 
 
 # =============================================================================
@@ -839,17 +1013,6 @@ class AgenteZ3:
 # =============================================================================
 
 class ColetorAPI:
-    """
-    COORDENADOR DAS 3 APIs
-    
-    APIs:
-    1. API_DIRETO: Retorna lista das últimas 10 rodadas
-    2. API_LATEST: Retorna a rodada mais recente
-    3. API_BACKUP: Fallback secundário
-    
-    Frequência: 0.3 segundos
-    """
-    
     def __init__(self, db: DatabaseManager):
         self.db = db
         self.rodadas_processadas = 0
@@ -868,24 +1031,15 @@ class ColetorAPI:
         ]
     
     def extrair_dados_rodada(self, dados: dict, api_nome: str) -> Optional[Rodada]:
-        """
-        EXTRAI OS DADOS DE UMA RODADA DA RESPOSTA DA API
-        
-        Suporta dois formatos:
-        1. Formato novo: {data: {result: {playerDice: {first, second}, bankerDice: {first, second}}}}
-        2. Formato antigo: {p1, p2, b1, b2, resultado}
-        """
         try:
             rodada_id = dados.get('id') or dados.get('_id')
             
             if not rodada_id:
                 return None
             
-            # Evita duplicatas
             if rodada_id in IDS_PROCESSADOS or rodada_id in ULTIMO_ID_CONTROLE:
                 return None
             
-            # Extrai os dados (suporta dois formatos)
             if 'data' in dados and 'result' in dados.get('data', {}):
                 data_obj = dados['data']
                 result = data_obj.get('result', {})
@@ -902,7 +1056,6 @@ class ColetorAPI:
                 b1 = dados.get('b1') or dados.get('banker1', 0)
                 b2 = dados.get('b2') or dados.get('banker2', 0)
             
-            # Validação
             if not all(1 <= v <= 6 for v in [p1, p2, b1, b2]):
                 return None
             
@@ -926,7 +1079,6 @@ class ColetorAPI:
             return None
     
     def buscar_todas_apis(self) -> List[Rodada]:
-        """Busca em todas as 3 APIs e retorna as rodadas encontradas"""
         rodadas_encontradas = []
         
         for nome, url in self.APIS:
@@ -939,14 +1091,12 @@ class ColetorAPI:
                     
                     dados = response.json()
                     
-                    # API_DIRETO retorna lista
                     if nome == 'API_DIRETO' and isinstance(dados, list):
                         for item in dados:
                             rodada = self.extrair_dados_rodada(item, nome)
                             if rodada:
                                 rodadas_encontradas.append(rodada)
                     else:
-                        # API_LATEST e API_BACKUP retornam objeto único
                         rodada = self.extrair_dados_rodada(dados, nome)
                         if rodada:
                             rodadas_encontradas.append(rodada)
@@ -961,13 +1111,6 @@ class ColetorAPI:
         return rodadas_encontradas
     
     def coletar_e_processar(self, agente_z3: AgenteZ3, callback_rodada=None):
-        """
-        COLETA E PROCESSA AS RODADAS DAS 3 APIs
-        
-        Para cada rodada:
-        1. Salva no banco
-        2. Chama callback (processar_rodada)
-        """
         rodadas = self.buscar_todas_apis()
         
         for rodada in rodadas:
@@ -977,7 +1120,6 @@ class ColetorAPI:
             self.ultima_rodada_id = rodada.id
             self.rodadas_processadas += 1
             
-            # SALVA NO BANCO
             self.db.salvar_rodada(rodada)
             
             logger.info(f"🎲 RODADA #{self.rodadas_processadas}: P={rodada.dados.player_score} B={rodada.dados.banker_score} | {rodada.resultado} | API: {rodada.api_origem}")
@@ -997,27 +1139,28 @@ CORS(app)
 
 db = DatabaseManager(DATABASE_URL)
 agente_z3 = AgenteZ3(db)
+agente_massivo = AgenteMassivo(db, agente_z3)
+agente_neural = AgenteNeural()
 coletor = ColetorAPI(db)
 
-# Cache para o frontend (NÃO PERSISTE, APENAS MEMÓRIA)
 cache = {
     'ultimas_rodadas': [],
     'ultimas_previsoes': [],
     'estatisticas': {},
-    'estado_z3': {'recuperado': False, 'posicao': 0}
+    'estado_z3': {'recuperado': False, 'posicao': 0},
+    'agente_massa': {}
 }
 
 
 def processar_rodada(rodada: Rodada):
-    """Processa uma rodada recém-coletada - ATUALIZA CACHE E VALIDA PREVISÕES"""
     global cache
     
-    # Se estado Z3 recuperado, verifica se a previsão anterior estava correta
     if agente_z3.estado_recuperado:
         acertou, previsao_usada = agente_z3.verificar_rodada(rodada.dados)
         
         if previsao_usada:
-            # ATUALIZA O BANCO: marca se a previsão acertou
+            # Registra no agente neural também
+            agente_neural.registrar_resultado(previsao_usada, rodada.dados, acertou)
             db.atualizar_acerto_previsao(rodada.id, acertou)
             
             if acertou:
@@ -1025,7 +1168,6 @@ def processar_rodada(rodada: Rodada):
             else:
                 logger.warning(f"❌ PREVISÃO ERRADA! Previsto={previsao_usada.to_list()} Real={rodada.dados.to_list()}")
     
-    # Atualiza cache para o frontend
     cache['ultimas_rodadas'].insert(0, {
         'id': rodada.id,
         'p1': rodada.dados.p1, 'p2': rodada.dados.p2,
@@ -1037,18 +1179,17 @@ def processar_rodada(rodada: Rodada):
         'data': rodada.data_hora.strftime('%H:%M:%S')
     })
     
-    # Mantém apenas últimas 50 rodadas no cache
     while len(cache['ultimas_rodadas']) > 50:
         cache['ultimas_rodadas'].pop()
     
-    # Atualiza estatísticas
     cache['estatisticas'] = db.get_estatisticas_previsoes()
     cache['estatisticas']['total_rodadas'] = db.get_total_rodadas()
     cache['estatisticas']['api_stats'] = coletor.api_stats
+    cache['estatisticas']['agente_neural'] = agente_neural.get_estatisticas()
+    cache['agente_massa'] = agente_massivo.get_estatisticas_massa()
 
 
 def recuperar_estado_inicial():
-    """Tenta recuperar o estado do Z3 ao iniciar"""
     logger.info("[INICIALIZAÇÃO] Tentando recuperar estado do Z3...")
     
     estado = agente_z3.recuperar_estado_dos_dados()
@@ -1057,7 +1198,6 @@ def recuperar_estado_inicial():
         cache['estado_z3']['recuperado'] = True
         cache['estado_z3']['posicao'] = agente_z3.posicao_atual
         
-        # Gera primeiras previsões
         previsoes = agente_z3.prever_proximas(20)
         cache['ultimas_previsoes'] = [p.to_dict() for p in previsoes]
         
@@ -1067,41 +1207,38 @@ def recuperar_estado_inicial():
 
 
 def loop_coleta():
-    """
-    LOOP PRINCIPAL DE COLETA
-    
-    - Executa a cada 0.3 segundos
-    - Coleta as 3 APIs
-    - Processa rodadas novas
-    - Tenta recuperar estado se ainda não recuperou
-    """
     logger.info(f"🔄 Loop de coleta iniciado - Intervalo: {UPDATE_INTERVAL}s")
-    logger.info("📡 APIs configuradas:")
-    logger.info(f"   1. API_DIRETO: {API_DIRETO[:80]}...")
-    logger.info(f"   2. API_LATEST: {API_LATEST}")
-    logger.info(f"   3. API_BACKUP: {API_BACKUP}")
     
     ultima_recuperacao = 0
+    ultima_validacao_massa = 0
     
     while True:
         try:
             start_time = time.time()
             
-            # Coleta e processa rodadas
             coletor.coletar_e_processar(agente_z3, processar_rodada)
             
-            # Tenta recuperar estado a cada 30 segundos se ainda não recuperou
             if not cache['estado_z3']['recuperado']:
                 if time.time() - ultima_recuperacao > 30:
                     recuperar_estado_inicial()
                     ultima_recuperacao = time.time()
             
-            # Gera novas previsões se estado estiver recuperado
             if cache['estado_z3']['recuperado'] and len(cache['ultimas_previsoes']) < 10:
                 novas = agente_z3.prever_proximas(20)
                 cache['ultimas_previsoes'] = [p.to_dict() for p in novas]
             
-            # Calcula tempo de espera para manter o intervalo de 0.3s
+            # Validação em massa a cada 60 segundos
+            if time.time() - ultima_validacao_massa > 60:
+                resultado = agente_massivo.validar_previsoes_pendentes()
+                if resultado.total_validados > 0:
+                    cache['agente_massa']['ultima_validacao'] = {
+                        'total': resultado.total_validados,
+                        'precisao': resultado.precisao,
+                        'desvio': resultado.desvio_detectado,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                ultima_validacao_massa = time.time()
+            
             elapsed = time.time() - start_time
             sleep_time = max(0, UPDATE_INTERVAL - elapsed)
             time.sleep(sleep_time)
@@ -1111,28 +1248,42 @@ def loop_coleta():
             time.sleep(UPDATE_INTERVAL)
 
 
+def loop_validacao_massa():
+    """Thread separada para validação em massa contínua"""
+    logger.info("[AGENTE MASSA] Thread de validação em massa iniciada")
+    
+    while True:
+        try:
+            agente_massivo.validar_previsoes_pendentes()
+            time.sleep(60)
+        except Exception as e:
+            logger.error(f"[AGENTE MASSA] Erro na thread: {e}")
+            time.sleep(120)
+
+
 # =============================================================================
-# ROTAS DA API (FRONTEND)
+# ROTAS DA API
 # =============================================================================
 
 @app.route('/')
 def index():
-    """Página principal"""
     try:
         return render_template('index.html')
     except Exception as e:
         return f"""
         <!DOCTYPE html>
         <html>
-        <head><title>BAC BO BOT - Agente Z3</title></head>
+        <head><title>BAC BO BOT - Agente Z3 + Massa</title></head>
         <body>
-            <h1>BAC BO BOT - Agente Z3 v1.0</h1>
+            <h1>BAC BO BOT - Agente Z3 v1.0 + Agente em Massa</h1>
             <p>API está funcionando. Use os endpoints abaixo:</p>
             <ul>
                 <li><a href="/api/stats">/api/stats</a> - Estatísticas</li>
                 <li><a href="/api/rodadas">/api/rodadas</a> - Últimas rodadas</li>
                 <li><a href="/api/previsoes">/api/previsoes</a> - Previsões</li>
                 <li><a href="/api/apis">/api/apis</a> - Status das APIs</li>
+                <li><a href="/api/massa">/api/massa</a> - Estatísticas do Agente em Massa</li>
+                <li><a href="/api/validar">/api/validar</a> - Forçar validação em massa</li>
             </ul>
         </body>
         </html>
@@ -1141,18 +1292,17 @@ def index():
 
 @app.route('/api/stats')
 def api_stats():
-    """Retorna estatísticas das previsões e estado do Z3"""
     return jsonify({
         'success': True,
         'data': cache['estatisticas'],
         'estado_z3': cache['estado_z3'],
+        'agente_massa': cache['agente_massa'],
         'timestamp': datetime.now().isoformat()
     })
 
 
 @app.route('/api/rodadas')
 def api_rodadas():
-    """Retorna as últimas rodadas do banco"""
     limit = request.args.get('limit', 30, type=int)
     rodadas = db.get_ultimas_rodadas(limit)
     return jsonify({'success': True, 'data': rodadas})
@@ -1160,7 +1310,6 @@ def api_rodadas():
 
 @app.route('/api/previsoes')
 def api_previsoes():
-    """Retorna as próximas previsões"""
     return jsonify({
         'success': True,
         'data': cache['ultimas_previsoes'],
@@ -1171,7 +1320,6 @@ def api_previsoes():
 
 @app.route('/api/apis')
 def api_apis():
-    """Retorna status das 3 APIs"""
     return jsonify({
         'success': True,
         'data': {
@@ -1182,9 +1330,41 @@ def api_apis():
     })
 
 
+@app.route('/api/massa')
+def api_massa():
+    """Endpoint específico para estatísticas do Agente em Massa"""
+    return jsonify({
+        'success': True,
+        'data': agente_massivo.get_estatisticas_massa(),
+        'configuracoes': {
+            'batch_size': BATCH_SIZE,
+            'parallel_workers': PARALLEL_WORKERS,
+            'validation_batch': VALIDATION_BATCH
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+
+@app.route('/api/validar')
+def api_validar():
+    """Força validação em massa imediata"""
+    resultado = agente_massivo.validar_previsoes_pendentes()
+    return jsonify({
+        'success': True,
+        'resultado': {
+            'total_validados': resultado.total_validados,
+            'acertos': resultado.acertos,
+            'erros': resultado.erros,
+            'precisao': resultado.precisao,
+            'desvio_detectado': resultado.desvio_detectado,
+            'mensagem': resultado.mensagem
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+
 @app.route('/api/recover')
 def api_recover():
-    """Força a recuperação do estado do Z3"""
     estado = agente_z3.recuperar_estado_dos_dados()
     if estado:
         cache['estado_z3']['recuperado'] = True
@@ -1197,7 +1377,6 @@ def api_recover():
 
 @app.route('/api/evolucao')
 def api_evolucao():
-    """Evolução da precisão das previsões (últimas 24 horas)"""
     conn = db._get_connection()
     if not conn:
         return jsonify({'precisao': []})
@@ -1239,12 +1418,14 @@ def api_evolucao():
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - AGENTE Z3 + NEURAL v1.0")
+    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0")
     print("="*70)
-    print("\n🎯 ARQUITETURA:")
-    print("   1. AGENTE Z3 - Recupera estado do MT19937")
+    print("\n🎯 ARQUITETURA COMPLETA:")
+    print("   1. AGENTE Z3 - Recupera estado do MT19937 (individual)")
     print("   2. AGENTE PREDITOR - Gera previsões determinísticas")
     print("   3. AGENTE VALIDADOR - Verifica previsões contra realidade")
+    print("   4. AGENTE EM MASSA - Processa lotes em paralelo (NOVO!)")
+    print("   5. AGENTE NEURAL - Ajuste de confiança (complementar)")
     print("\n📡 APIs CONFIGURADAS:")
     print(f"   1. API_DIRETO: {API_DIRETO[:60]}...")
     print(f"   2. API_LATEST: {API_LATEST}")
@@ -1252,18 +1433,28 @@ def main():
     print(f"\n⏱️  INTERVALO DE ATUALIZAÇÃO: {UPDATE_INTERVAL} segundos")
     print(f"🎲 ROUNDS PARA RECUPERAÇÃO: {ROUNDS_FOR_RECOVERY}")
     print(f"🔧 CONFIGURAÇÃO Z3: {MAP_TYPE} | ordem={','.join(ORDER)} | offset={OFFSET}")
+    print("\n📊 AGENTE EM MASSA:")
+    print(f"   - Workers paralelos: {PARALLEL_WORKERS}")
+    print(f"   - Batch size: {BATCH_SIZE}")
+    print(f"   - Validation batch: {VALIDATION_BATCH}")
     print("\n📊 TABELAS DO BANCO DE DADOS:")
-    print("   - rodadas:    Armazena cada rodada coletada")
-    print("   - previsoes:  Armazena previsões do Z3")
-    print("   - estado_z3:  Armazena estado MT19937 recuperado")
+    print("   - rodadas:        Armazena cada rodada coletada")
+    print("   - previsoes:      Armazena previsões do Z3")
+    print("   - estado_z3:      Armazena estado MT19937 recuperado")
+    print("   - validacoes_massa: Armazena validações em lote (NOVO!)")
+    print("   - estatisticas_lote: Estatísticas agregadas por lote (NOVO!)")
     print("="*70 + "\n")
     
     # Tenta recuperar estado inicial
     recuperar_estado_inicial()
     
-    # Inicia thread de coleta
+    # Inicia thread de coleta (0.3s)
     coleta_thread = threading.Thread(target=loop_coleta, daemon=True)
     coleta_thread.start()
+    
+    # Inicia thread de validação em massa (a cada 60s)
+    massa_thread = threading.Thread(target=loop_validacao_massa, daemon=True)
+    massa_thread.start()
     
     logger.info(f"🌐 Servidor rodando na porta {PORT}")
     app.run(host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
