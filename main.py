@@ -60,7 +60,7 @@ API_LATEST = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/late
 # API_BACKUP REMOVIDA - causava travamento por duplicação
 
 PORT = int(os.environ.get("PORT", 5000))
-UPDATE_INTERVAL = 0.3
+UPDATE_INTERVAL = 0.5
 BATCH_SIZE = 50
 PARALLEL_WORKERS = 4
 VALIDATION_BATCH = 20
