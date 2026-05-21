@@ -9,14 +9,14 @@ AGENTES IMPLEMENTADOS:
 4. AGENTE EM MASSA - Processa lotes de rodadas em paralelo
 5. AGENTE NEURAL - Ajuste de confiança
 
-LÓGICA DE APIs (CORRIGIDA - NÃO TRAVA MAIS):
+LÓGICA DE APIs (CORRIGIDA - BACKOFF EXPONENCIAL):
 1. API_DIRETO (principal) - tenta sempre primeiro
 2. API_LATEST (fallback) - só usada se API_DIRETO falhar
-3. API_BACKUP - REMOVIDA (causava duplicação e travamento)
+3. API_BACKUP - REMOVIDA (causava duplicação)
 
+✅ BACKOFF EXPONENCIAL para 429 (Rate Limit)
 ✅ Cache de IDs para evitar rodadas repetidas
 ✅ Timeout 8s para não travar
-✅ Fallback inteligente
 """
 
 import os
@@ -54,13 +54,15 @@ import urllib.parse
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_9mWRy6lskeCT@ep-billowing-feather-apmnvtae-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
-# APIS - APENAS DUAS (BACKUP REMOVIDO PARA NÃO TRAVAR)
+# APIS - APENAS DUAS (BACKUP REMOVIDO)
 API_DIRETO = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo?page=0&size=10&sort=data.settledAt,desc"
 API_LATEST = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/latest"
-# API_BACKUP REMOVIDA - causava travamento por duplicação
 
 PORT = int(os.environ.get("PORT", 5000))
-UPDATE_INTERVAL = 0.5
+
+# INTERVALO AUMENTADO PARA EVITAR 429 (Rate Limit)
+UPDATE_INTERVAL = 0.5  # ANTES era 0.3, AGORA 2 segundos
+
 BATCH_SIZE = 50
 PARALLEL_WORKERS = 4
 VALIDATION_BATCH = 20
@@ -84,7 +86,7 @@ OFFSET = 0
 MAP_TYPE = "Lemire64"
 ROUNDS_FOR_RECOVERY = 156
 
-# Cache de IDs já processados (evita repetição)
+# Cache de IDs já processados
 IDS_PROCESSADOS = set()
 ULTIMO_ID_CONTROLE = {}
 
@@ -958,7 +960,7 @@ class AgenteNeural:
 
 
 # =============================================================================
-# COLETOR DE API - COM FALLBACK (SEM BACKUP - NÃO TRAVA)
+# COLETOR DE API - COM BACKOFF EXPONENCIAL (CORRIGIDO PARA 429)
 # =============================================================================
 
 class ColetorAPI:
@@ -966,8 +968,8 @@ class ColetorAPI:
         self.db = db
         self.rodadas_processadas = 0
         self.api_stats = {
-            'API_DIRETO': {'sucessos': 0, 'erros': 0, 'ultimo_id': None},
-            'API_LATEST': {'sucessos': 0, 'erros': 0, 'ultimo_id': None}
+            'API_DIRETO': {'sucessos': 0, 'erros': 0, 'backoff_until': 0, 'backoff_value': 2, 'ultimo_id': None},
+            'API_LATEST': {'sucessos': 0, 'erros': 0, 'backoff_until': 0, 'backoff_value': 2, 'ultimo_id': None}
         }
         self.fallback_em_uso = False
     
@@ -977,7 +979,6 @@ class ColetorAPI:
             if not rodada_id:
                 return None
             
-            # Cache de IDs - evita rodadas repetidas
             if rodada_id in IDS_PROCESSADOS:
                 return None
             
@@ -1004,7 +1005,6 @@ class ColetorAPI:
             
             IDS_PROCESSADOS.add(rodada_id)
             
-            # Limitar tamanho do cache
             if len(IDS_PROCESSADOS) > 1000:
                 IDS_PROCESSADOS.clear()
             
@@ -1021,20 +1021,39 @@ class ColetorAPI:
             return None
     
     def _requisitar_api(self, nome: str, url: str) -> Optional[Any]:
+        now = time.time()
+        
+        # VERIFICA SE ESTÁ EM BACKOFF
+        if now < self.api_stats[nome]['backoff_until']:
+            return None
+        
         try:
-            # Timeout de 8 segundos - não trava!
             response = requests.get(url, headers=HEADERS, timeout=8)
             
             if response.status_code == 200:
+                # SUCESSO - RESETA BACKOFF
                 self.api_stats[nome]['sucessos'] += 1
+                self.api_stats[nome]['backoff_value'] = 2
+                self.api_stats[nome]['backoff_until'] = 0
                 return response.json()
+            
+            elif response.status_code == 429:
+                # RATE LIMIT - BACKOFF EXPONENCIAL
+                self.api_stats[nome]['erros'] += 1
+                current_backoff = self.api_stats[nome]['backoff_value']
+                backoff_time = min(current_backoff * 2, 60)  # MAX 60 SEGUNDOS
+                self.api_stats[nome]['backoff_until'] = now + backoff_time
+                self.api_stats[nome]['backoff_value'] = backoff_time
+                logger.warning(f"🚫 {nome} - 429 Rate Limit! Backoff de {backoff_time}s")
+                return None
             else:
                 self.api_stats[nome]['erros'] += 1
                 logger.warning(f"⚠️ {nome} retornou {response.status_code}")
                 return None
+                
         except requests.Timeout:
             self.api_stats[nome]['erros'] += 1
-            logger.warning(f"⏰ Timeout na {nome} (8s)")
+            logger.warning(f"⏰ Timeout na {nome}")
             return None
         except Exception as e:
             self.api_stats[nome]['erros'] += 1
@@ -1043,37 +1062,40 @@ class ColetorAPI:
     
     def coletar_e_processar(self, agente_z3: AgenteZ3, callback_rodada=None) -> int:
         """
-        LÓGICA CORRIGIDA - NÃO TRAVA MAIS:
-        1. Tenta API_DIRETO primeiro
-        2. Se falhar (timeout/erro), usa API_LATEST como fallback
-        3. Cache de IDs evita rodadas repetidas
-        4. Timeout 8s evita travamento
+        LÓGICA COM BACKOFF EXPONENCIAL:
+        1. Verifica se API está em backoff
+        2. Tenta API_DIRETO
+        3. Se 429, aumenta backoff e para de tentar
+        4. Fallback para API_LATEST se necessário
         """
         rodadas_encontradas = []
         
-        # TENTA API_DIRETO PRIMEIRO
-        logger.info("📡 Tentando API_DIRETO...")
-        dados_direto = self._requisitar_api('API_DIRETO', API_DIRETO)
+        now = time.time()
         
-        if dados_direto is not None:
-            self.fallback_em_uso = False
+        # VERIFICA SE API_DIRETO ESTÁ DISPONÍVEL
+        if now >= self.api_stats['API_DIRETO']['backoff_until']:
+            logger.info("📡 Tentando API_DIRETO...")
+            dados_direto = self._requisitar_api('API_DIRETO', API_DIRETO)
             
-            items = dados_direto if isinstance(dados_direto, list) else [dados_direto]
-            for item in items:
-                rodada = self._extrair_rodada(item, 'API_DIRETO')
-                if rodada:
-                    rodadas_encontradas.append(rodada)
-            
-            if rodadas_encontradas:
-                logger.info(f"✅ API_DIRETO: {len(rodadas_encontradas)} rodada(s) nova(s)")
-        else:
-            # FALLBACK: API_DIRETO falhou, usa API_LATEST
-            logger.warning("⚠️ API_DIRETO falhou! Usando API_LATEST como fallback...")
-            self.fallback_em_uso = True
-            
+            if dados_direto is not None:
+                self.fallback_em_uso = False
+                items = dados_direto if isinstance(dados_direto, list) else [dados_direto]
+                for item in items:
+                    rodada = self._extrair_rodada(item, 'API_DIRETO')
+                    if rodada:
+                        rodadas_encontradas.append(rodada)
+                
+                if rodadas_encontradas:
+                    logger.info(f"✅ API_DIRETO: {len(rodadas_encontradas)} rodada(s) nova(s)")
+                return self._processar_rodadas(rodadas_encontradas, callback_rodada)
+        
+        # SE API_DIRETO ESTÁ EM BACKOFF OU FALHOU, TENTA API_LATEST
+        if now >= self.api_stats['API_LATEST']['backoff_until']:
+            logger.info("📡 Tentando API_LATEST...")
             dados_latest = self._requisitar_api('API_LATEST', API_LATEST)
             
             if dados_latest is not None:
+                self.fallback_em_uso = True
                 items = dados_latest if isinstance(dados_latest, list) else [dados_latest]
                 for item in items:
                     rodada = self._extrair_rodada(item, 'API_LATEST')
@@ -1081,12 +1103,20 @@ class ColetorAPI:
                         rodadas_encontradas.append(rodada)
                 
                 if rodadas_encontradas:
-                    logger.info(f"🔄 API_LATEST (fallback): {len(rodadas_encontradas)} rodada(s) nova(s)")
-            else:
-                logger.error("❌ Ambas APIs falharam!")
+                    logger.info(f"🔄 API_LATEST: {len(rodadas_encontradas)} rodada(s) nova(s)")
+                return self._processar_rodadas(rodadas_encontradas, callback_rodada)
         
-        # Processa as rodadas encontradas
-        for rodada in rodadas_encontradas:
+        # AMBAS EM BACKOFF
+        if self.api_stats['API_DIRETO']['backoff_until'] > now:
+            logger.info(f"⏸️ API_DIRETO em backoff por mais {int(self.api_stats['API_DIRETO']['backoff_until'] - now)}s")
+        if self.api_stats['API_LATEST']['backoff_until'] > now:
+            logger.info(f"⏸️ API_LATEST em backoff por mais {int(self.api_stats['API_LATEST']['backoff_until'] - now)}s")
+        
+        return 0
+    
+    def _processar_rodadas(self, rodadas: List[Rodada], callback_rodada=None) -> int:
+        """Processa as rodadas encontradas"""
+        for rodada in rodadas:
             self.rodadas_processadas += 1
             self.db.salvar_rodada(rodada)
             logger.info(f"🎲 RODADA #{self.rodadas_processadas}: {rodada.resultado} | {rodada.api_origem}")
@@ -1094,12 +1124,21 @@ class ColetorAPI:
             if callback_rodada:
                 callback_rodada(rodada)
         
-        return len(rodadas_encontradas)
+        return len(rodadas)
     
     def get_stats(self) -> Dict:
+        now = time.time()
         return {
-            'API_DIRETO': self.api_stats['API_DIRETO'],
-            'API_LATEST': self.api_stats['API_LATEST'],
+            'API_DIRETO': {
+                'sucessos': self.api_stats['API_DIRETO']['sucessos'],
+                'erros': self.api_stats['API_DIRETO']['erros'],
+                'backoff_restante': max(0, int(self.api_stats['API_DIRETO']['backoff_until'] - now))
+            },
+            'API_LATEST': {
+                'sucessos': self.api_stats['API_LATEST']['sucessos'],
+                'erros': self.api_stats['API_LATEST']['erros'],
+                'backoff_restante': max(0, int(self.api_stats['API_LATEST']['backoff_until'] - now))
+            },
             'fallback_em_uso': self.fallback_em_uso,
             'total_rodadas': self.rodadas_processadas
         }
@@ -1259,7 +1298,7 @@ def index():
             </div>
             <div style="margin-top: 40px; font-size: 12px; color: #666;">
                 <p>📡 APIs: DIRETO (principal) | LATEST (fallback)</p>
-                <p>⏱️ Intervalo: 0.3s | Timeout: 8s | Cache de IDs</p>
+                <p>⏱️ Intervalo: 2s | Timeout: 8s | Backoff Exponencial</p>
             </div>
         </body>
         </html>
@@ -1385,7 +1424,7 @@ def api_erros_resumo():
                 'precisao_global': cache['estatisticas'].get('precisao', 0),
                 'total_erros': cache['estatisticas'].get('total', 0) - cache['estatisticas'].get('acertos', 0)
             },
-            'recomendacoes': [{'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3 - Fallback API configurado', 'severidade': 'baixa'}]
+            'recomendacoes': [{'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3 - Backoff Exponencial configurado', 'severidade': 'baixa'}]
         }
     })
 
@@ -1401,7 +1440,7 @@ def api_erros_ultimos():
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (FALLBACK CORRIGIDO)")
+    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (BACKOFF EXPONENCIAL)")
     print("="*70)
     print("\n🎯 ARQUITETURA COMPLETA:")
     print("   1. AGENTE Z3 - Recupera estado do MT19937")
@@ -1409,11 +1448,12 @@ def main():
     print("   3. AGENTE VALIDADOR - Verifica previsões contra realidade")
     print("   4. AGENTE EM MASSA - Processa lotes em paralelo")
     print("   5. AGENTE NEURAL - Ajuste de confiança")
-    print("\n📡 LÓGICA DE APIs (CORRIGIDA - NÃO TRAVA):")
+    print("\n📡 LÓGICA DE APIs (CORRIGIDA - BACKOFF EXPONENCIAL):")
     print("   1. API_DIRETO (principal) - tenta sempre primeiro")
     print("   2. API_LATEST (fallback) - só se DIRETO falhar")
     print("   3. API_BACKUP - REMOVIDA (causava travamento)")
     print(f"\n⏱️  INTERVALO: {UPDATE_INTERVAL}s | TIMEOUT: 8s")
+    print(f"🔄 BACKOFF EXPONENCIAL: 2s → 4s → 8s → 16s → 32s → 60s (max)")
     print(f"🎲 ROUNDS PARA RECUPERAÇÃO: {ROUNDS_FOR_RECOVERY}")
     print("✅ Cache de IDs para evitar repetição")
     print("="*70 + "\n")
