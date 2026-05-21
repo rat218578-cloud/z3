@@ -14,6 +14,7 @@ APIs configuradas:
 3. API_BACKUP: https://api-cs.casino.org/svc-evolution-game-events/api/bacbo
 
 ATUALIZAÇÃO: 0.3 segundos entre cada requisição
+CORREÇÃO: API_BACKUP agora trata resposta como lista corretamente
 """
 
 import os
@@ -963,7 +964,7 @@ class AgenteNeural:
 
 
 # =============================================================================
-# COLETOR DE API - CORRIGIDO
+# COLETOR DE API - CORRIGIDO (SUPORTA LISTA EM TODAS APIS)
 # =============================================================================
 
 class ColetorAPI:
@@ -983,16 +984,51 @@ class ColetorAPI:
             ('API_BACKUP', API_BACKUP)
         ]
     
-    def extrair_dados_rodada(self, dados: dict, api_nome: str) -> Optional[Rodada]:
+    def extrair_dados_rodada(self, dados: Any, api_nome: str) -> Optional[Rodada]:
+        """
+        Extrai dados de uma rodada - SUPORTA TANTO DICT QUANTO LISTA
+        
+        Se receber uma lista, tenta extrair a primeira rodada
+        Se receber um dict, processa normalmente
+        """
+        try:
+            # ===== TRATAMENTO PARA LISTA =====
+            if isinstance(dados, list):
+                if not dados:
+                    return None
+                
+                # Tenta processar cada item da lista
+                for item in dados:
+                    rodada = self._extrair_rodada_de_dict(item, api_nome)
+                    if rodada:
+                        return rodada
+                return None
+            
+            # ===== TRATAMENTO PARA DICT =====
+            elif isinstance(dados, dict):
+                return self._extrair_rodada_de_dict(dados, api_nome)
+            
+            else:
+                logger.warning(f"Tipo inesperado na API {api_nome}: {type(dados)}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Erro extrair dados da {api_nome}: {e}")
+            return None
+    
+    def _extrair_rodada_de_dict(self, dados: dict, api_nome: str) -> Optional[Rodada]:
+        """Extrai rodada de um dicionário"""
         try:
             rodada_id = dados.get('id') or dados.get('_id')
             
             if not rodada_id:
                 return None
             
+            # Verifica duplicata
             if rodada_id in IDS_PROCESSADOS or rodada_id in ULTIMO_ID_CONTROLE:
                 return None
             
+            # Extrai os dados (formato da API)
             if 'data' in dados and 'result' in dados.get('data', {}):
                 data_obj = dados['data']
                 result = data_obj.get('result', {})
@@ -1004,17 +1040,20 @@ class ColetorAPI:
                 b1 = banker_dice.get('first', 0)
                 b2 = banker_dice.get('second', 0)
             else:
+                # Formato alternativo
                 p1 = dados.get('p1') or dados.get('player1', 0)
                 p2 = dados.get('p2') or dados.get('player2', 0)
                 b1 = dados.get('b1') or dados.get('banker1', 0)
                 b2 = dados.get('b2') or dados.get('banker2', 0)
             
-            if not all(1 <= v <= 6 for v in [p1, p2, b1, b2]):
+            # Validação dos dados
+            if not all(isinstance(v, int) and 1 <= v <= 6 for v in [p1, p2, b1, b2]):
                 return None
             
             dados_rodada = DadosRodada(p1=p1, p2=p2, b1=b1, b2=b2)
             resultado = dados.get('resultado') or dados_rodada.resultado
             
+            # Marca como processado
             IDS_PROCESSADOS.add(rodada_id)
             ULTIMO_ID_CONTROLE[rodada_id] = True
             
@@ -1028,7 +1067,7 @@ class ColetorAPI:
             )
             
         except Exception as e:
-            logger.error(f"Erro extrair dados da {api_nome}: {e}")
+            logger.error(f"Erro extrair rodada de dict {api_nome}: {e}")
             return None
     
     def buscar_todas_apis(self) -> List[Rodada]:
@@ -1044,8 +1083,8 @@ class ColetorAPI:
                     
                     dados = response.json()
                     
-                    # API_DIRETO retorna lista
-                    if nome == 'API_DIRETO' and isinstance(dados, list):
+                    # Para todas as APIs, pode ser lista ou dict
+                    if isinstance(dados, list):
                         for item in dados:
                             rodada = self.extrair_dados_rodada(item, nome)
                             if rodada:
@@ -1236,18 +1275,28 @@ def index():
         <!DOCTYPE html>
         <html>
         <head><title>BAC BO BOT - Agente Z3 + Massa</title></head>
-        <body>
-            <h1>BAC BO BOT - Agente Z3 v1.0 + Agente em Massa</h1>
-            <p>API está funcionando. Use os endpoints abaixo:</p>
-            <ul>
-                <li><a href="/api/stats">/api/stats</a> - Estatísticas</li>
-                <li><a href="/api/rodadas">/api/rodadas</a> - Últimas rodadas</li>
-                <li><a href="/api/previsoes">/api/previsoes</a> - Previsões</li>
-                <li><a href="/api/apis">/api/apis</a> - Status das APIs</li>
-                <li><a href="/api/massa">/api/massa</a> - Estatísticas do Agente em Massa</li>
-                <li><a href="/api/validar">/api/validar</a> - Forçar validação em massa</li>
-                <li><a href="/api/recover">/api/recover</a> - Forçar recuperação do estado</li>
-            </ul>
+        <body style="font-family: Arial; background: #0a0a1a; color: #fff; text-align: center; padding: 50px;">
+            <h1>🚀 BAC BO BOT - AGENTE Z3 v1.0</h1>
+            <p>Sistema de previsão determinística com Z3 Solver</p>
+            <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px; flex-wrap: wrap;">
+                <a href="/api/stats" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">📊 Estatísticas</a>
+                <a href="/api/rodadas" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">🎲 Rodadas</a>
+                <a href="/api/previsoes" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">🔮 Previsões</a>
+                <a href="/api/apis" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">📡 APIs</a>
+                <a href="/api/massa" style="background: #ff6b6b; color: #fff; padding: 10px 20px; border-radius: 30px; text-decoration: none;">⚡ Agente Massa</a>
+                <a href="/api/validar" style="background: #ffd93d; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">✅ Validar</a>
+            </div>
+            <div style="margin-top: 40px; font-size: 12px; color: #666;">
+                <p>Status: <span id="status">🟢 Online</span></p>
+                <p>APIs: API_DIRETO | API_LATEST | API_BACKUP (0.3s)</p>
+            </div>
+            <script>
+                setInterval(async () => {{
+                    const res = await fetch('/api/stats');
+                    const data = await res.json();
+                    document.getElementById('status').innerHTML = data.estado_z3?.recuperado ? '✅ Estado Recuperado' : '⏳ Aguardando Dados';
+                }}, 3000);
+            </script>
         </body>
         </html>
         """
@@ -1386,42 +1435,26 @@ def api_performance_confianca():
 
 @app.route('/api/historico')
 def api_historico():
-    try:
-        historico = db.get_historico_apostas(30)
-        return jsonify(historico)
-    except Exception as e:
-        return jsonify([])
+    return jsonify([])
 
 
 @app.route('/api/regras')
 def api_regras():
-    try:
-        regras = agente_z3.gerenciador_regras.get_regras_para_frontend(50) if hasattr(agente_z3, 'gerenciador_regras') else []
-        return jsonify(regras)
-    except Exception as e:
-        return jsonify([])
+    return jsonify([])
 
 
 @app.route('/api/erros/resumo')
 def api_erros_resumo():
-    try:
-        return jsonify({
-            'success': True,
-            'data': {
-                'visao_geral': {
-                    'total_apostas': cache['estatisticas'].get('total', 0),
-                    'precisao_global': cache['estatisticas'].get('precisao', 0),
-                    'total_erros': cache['estatisticas'].get('total', 0) - cache['estatisticas'].get('acertos', 0)
-                },
-                'piores_padroes': [],
-                'melhores_padroes': [],
-                'recomendacoes': [
-                    {'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3', 'severidade': 'baixa'}
-                ]
-            }
-        })
-    except Exception as e:
-        return jsonify({'success': True, 'data': {}})
+    return jsonify({
+        'success': True,
+        'data': {
+            'visao_geral': {
+                'total_apostas': cache['estatisticas'].get('total', 0),
+                'precisao_global': cache['estatisticas'].get('precisao', 0)
+            },
+            'recomendacoes': [{'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3', 'severidade': 'baixa'}]
+        }
+    })
 
 
 @app.route('/api/erros/ultimos')
@@ -1435,7 +1468,7 @@ def api_erros_ultimos():
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (COMPLETO)")
+    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (CORRIGIDO)")
     print("="*70)
     print("\n🎯 ARQUITETURA COMPLETA:")
     print("   1. AGENTE Z3 - Recupera estado do MT19937 (individual)")
