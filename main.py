@@ -11,6 +11,10 @@ Princípios:
 6. ✅ Score Exato tem PRIORIDADE ABSOLUTA
 
 O bot NÃO USA tabela estática da tese - aprende APENAS com dados reais em tempo real.
+
+ALTERAÇÃO v9.2:
+- API DIRETO (page=0&size=10&sort=data.settledAt,desc) é a fonte PRINCIPAL
+- API LATEST é apenas FALLBACK (quando o direto trava)
 """
 
 import os
@@ -36,7 +40,10 @@ import urllib.parse
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_hW3kU9LZfsgB@ep-summer-meadow-ap9gu9vy-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo"
 LATEST_API_URL = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/latest"
+# ===== ALTERAÇÃO PRINCIPAL v9.2 =====
+# API DIRETO é a fonte PRINCIPAL (com page e size)
 API_DIRETO = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo?page=0&size=10&sort=data.settledAt,desc"
+# ====================================
 PORT = int(os.environ.get("PORT", 5000))
 
 logging.basicConfig(
@@ -1763,22 +1770,104 @@ bot = BacBoBotML(db)
 cache = {
     'ultima_rodada': None,
     'ultima_previsao': None,
-    'fonte_ativa': 'api',
+    'fonte_ativa': 'api_direto',
     'rodadas_total': 0
 }
 
 
+# =============================================================================
+# ALTERAÇÃO PRINCIPAL v9.2 - FUNÇÃO DE BUSCA COM FALLBACK
+# =============================================================================
+
 def buscar_rodada_real() -> Optional[Rodada]:
+    """
+    Busca rodada da API seguindo esta ordem:
+    1. Tenta API_DIRETO (principal)
+    2. Se falhar, tenta LATEST_API_URL (fallback)
+    3. Se ambos falharem, retorna None
+    """
+    
+    # ===== TENTA API DIRETO PRIMEIRO =====
+    try:
+        response = requests.get(API_DIRETO, headers=HEADERS, timeout=5)
+        
+        if response.status_code == 200:
+            dados = response.json()
+            
+            # A API Direto retorna uma lista/array
+            if isinstance(dados, list) and len(dados) > 0:
+                # Pega a primeira rodada da lista (mais recente)
+                item = dados[0]
+                rodada_id = item.get('id') or item.get('_id')
+                
+                # Verifica se já processou esta rodada
+                if rodada_id in ULTIMO_ID_CONTROLE:
+                    cache['fonte_ativa'] = 'api_direto'
+                    return None
+                
+                ULTIMO_ID_CONTROLE[rodada_id] = True
+                
+                # Extrai os dados da rodada
+                if 'data' in item and 'result' in item.get('data', {}):
+                    data_obj = item['data']
+                    result = data_obj.get('result', {})
+                    player_dice = result.get('playerDice', {})
+                    banker_dice = result.get('bankerDice', {})
+                    player_score = player_dice.get('first', 0) + player_dice.get('second', 0)
+                    banker_score = banker_dice.get('first', 0) + banker_dice.get('second', 0)
+                    outcome = result.get('outcome', '')
+                    
+                    if outcome == 'PlayerWon':
+                        resultado = 'PLAYER'
+                    elif outcome == 'BankerWon':
+                        resultado = 'BANKER'
+                    else:
+                        resultado = 'TIE'
+                else:
+                    player_score = item.get('player_score', 0)
+                    banker_score = item.get('banker_score', 0)
+                    resultado = item.get('resultado', '')
+                
+                if player_score == 0 and banker_score == 0:
+                    cache['fonte_ativa'] = 'api_direto'
+                    return None
+                
+                cache['fonte_ativa'] = 'api_direto'
+                logger.debug(f"📡 Fonte: API DIRETO - ID: {rodada_id}")
+                
+                return Rodada(
+                    id=rodada_id,
+                    data_hora=datetime.now(),
+                    player_score=player_score,
+                    banker_score=banker_score,
+                    resultado=resultado,
+                    fonte='api_direto'
+                )
+            else:
+                logger.warning(f"⚠️ API DIRETO retornou formato inesperado: {type(dados)}")
+        else:
+            logger.warning(f"⚠️ API DIRETO falhou com status {response.status_code}")
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Erro na API DIRETO: {e}")
+    
+    # ===== FALLBACK: TENTA API LATEST =====
+    logger.info("🔄 Tentando fallback com API LATEST...")
+    
     try:
         response = requests.get(LATEST_API_URL, headers=HEADERS, timeout=5)
+        
         if response.status_code != 200:
+            logger.error(f"❌ API LATEST também falhou! Status: {response.status_code}")
             return None
         
         dados = response.json()
         rodada_id = dados.get('id') or dados.get('_id')
         
         if rodada_id in ULTIMO_ID_CONTROLE:
+            cache['fonte_ativa'] = 'api_latest'
             return None
+        
         ULTIMO_ID_CONTROLE[rodada_id] = True
         
         if 'data' in dados and 'result' in dados['data']:
@@ -1802,7 +1891,11 @@ def buscar_rodada_real() -> Optional[Rodada]:
             resultado = dados.get('resultado', '')
         
         if player_score == 0 and banker_score == 0:
+            cache['fonte_ativa'] = 'api_latest'
             return None
+        
+        cache['fonte_ativa'] = 'api_latest'
+        logger.info(f"📡 Fonte: API LATEST (fallback) - ID: {rodada_id}")
         
         return Rodada(
             id=rodada_id,
@@ -1810,10 +1903,11 @@ def buscar_rodada_real() -> Optional[Rodada]:
             player_score=player_score,
             banker_score=banker_score,
             resultado=resultado,
-            fonte='api'
+            fonte='api_latest'
         )
+        
     except Exception as e:
-        logger.error(f"Erro buscar API: {e}")
+        logger.error(f"❌ Erro no fallback da API LATEST: {e}")
         return None
 
 
@@ -1828,7 +1922,7 @@ def processar_rodada(rodada: Rodada):
     bot.adicionar_rodada(rodada)
     cache['rodadas_total'] = db.get_total_rodadas()
     
-    logger.info(f"🎲 RODADA #{cache['rodadas_total']}: P={rodada.player_score} B={rodada.banker_score} | {rodada.resultado}")
+    logger.info(f"🎲 RODADA #{cache['rodadas_total']}: P={rodada.player_score} B={rodada.banker_score} | {rodada.resultado} | Fonte: {rodada.fonte}")
     
     decisao, decisao_id = bot.registrar_aposta(rodada.id, rodada.player_score, rodada.banker_score)
     
@@ -1903,7 +1997,7 @@ def api_stats():
             'total_acertos': total_acertos,
             'precisao': precisao,
             'total_rodadas': total_rodadas,
-            'fonte_ativa': cache.get('fonte_ativa', 'api'),
+            'fonte_ativa': cache.get('fonte_ativa', 'api_direto'),
             'ml_stats': stats_ml,
             'ultima_previsao': cache.get('ultima_previsao'),
             'timestamp': datetime.now().isoformat()
@@ -1954,6 +2048,7 @@ def api_regras():
                 'erros_para_inversao': ERROS_PARA_INVERSAO,
                 'dias_manter_regras': DIAS_MANTER_REGRAS
             },
+            'fonte_ativa': cache.get('fonte_ativa', 'api_direto'),
             'ultima_atualizacao': datetime.now().isoformat()
         })
     except Exception as e:
@@ -2397,8 +2492,11 @@ def debug_check():
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - ML EVOLUTION v9.1")
-    print("🎯 NOVIDADES v9.1:")
+    print("🚀 BAC BO BOT - ML EVOLUTION v9.2")
+    print("🎯 NOVIDADES v9.2:")
+    print("   ✅ API DIRETO como fonte PRINCIPAL (page=0&size=10&sort=data.settledAt,desc)")
+    print("   ✅ API LATEST como FALLBACK (quando o direto trava)")
+    print("   ✅ Comutação automática entre fontes")
     print("   ✅ JANELA DESLIZANTE (Sliding Window) - últimas 20 ocorrências por score")
     print("   ✅ APRENDE DO ZERO - sem tabela estática, apenas dados reais")
     print("   ✅ INVERSÃO AUTOMÁTICA - 2 erros consecutivos = regra invertida")
@@ -2414,7 +2512,9 @@ def main():
     print(f"   Dias para descartar regras: {DIAS_MANTER_REGRAS}")
     print(f"   Erros consecutivos limite: {ERROS_CONSECUTIVOS_LIMITE}")
     print(f"\n📚 Modo de aprendizado: DO ZERO (sem tabela estática)")
-    print(f"\n📡 Fonte: API Real → {LATEST_API_URL}")
+    print(f"\n📡 Fontes API:")
+    print(f"   → PRINCIPAL: {API_DIRETO}")
+    print(f"   → FALLBACK:  {LATEST_API_URL}")
     print("⏱️  Polling: 2 segundos")
     print("="*70)
     
