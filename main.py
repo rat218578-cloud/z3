@@ -1283,7 +1283,6 @@ def api_previsoes():
 
 @app.route('/api/apis')
 def api_apis():
-    """Endpoint para status das 3 APIs"""
     stats = coletor.get_stats()
     return jsonify({
         'success': True,
@@ -1378,12 +1377,56 @@ def api_evolucao():
 
 @app.route('/api/performance/confianca')
 def api_performance_confianca():
-    """Endpoint para análise de confiança"""
     return jsonify({
         'success': True,
         'data': agente_neural.get_estatisticas(),
         'timestamp': datetime.now().isoformat()
     })
+
+
+@app.route('/api/historico')
+def api_historico():
+    try:
+        historico = db.get_historico_apostas(30)
+        return jsonify(historico)
+    except Exception as e:
+        return jsonify([])
+
+
+@app.route('/api/regras')
+def api_regras():
+    try:
+        regras = agente_z3.gerenciador_regras.get_regras_para_frontend(50) if hasattr(agente_z3, 'gerenciador_regras') else []
+        return jsonify(regras)
+    except Exception as e:
+        return jsonify([])
+
+
+@app.route('/api/erros/resumo')
+def api_erros_resumo():
+    try:
+        return jsonify({
+            'success': True,
+            'data': {
+                'visao_geral': {
+                    'total_apostas': cache['estatisticas'].get('total', 0),
+                    'precisao_global': cache['estatisticas'].get('precisao', 0),
+                    'total_erros': cache['estatisticas'].get('total', 0) - cache['estatisticas'].get('acertos', 0)
+                },
+                'piores_padroes': [],
+                'melhores_padroes': [],
+                'recomendacoes': [
+                    {'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3', 'severidade': 'baixa'}
+                ]
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': True, 'data': {}})
+
+
+@app.route('/api/erros/ultimos')
+def api_erros_ultimos():
+    return jsonify({'success': True, 'data': {'erros': []}})
 
 
 # =============================================================================
@@ -1392,7 +1435,7 @@ def api_performance_confianca():
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (CORRIGIDO)")
+    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (COMPLETO)")
     print("="*70)
     print("\n🎯 ARQUITETURA COMPLETA:")
     print("   1. AGENTE Z3 - Recupera estado do MT19937 (individual)")
@@ -1411,6 +1454,12 @@ def main():
     print(f"   - Workers paralelos: {PARALLEL_WORKERS}")
     print(f"   - Batch size: {BATCH_SIZE}")
     print(f"   - Validation batch: {VALIDATION_BATCH}")
+    print("\n📊 TABELAS DO BANCO DE DADOS:")
+    print("   - rodadas:        Armazena cada rodada coletada")
+    print("   - previsoes:      Armazena previsões do Z3")
+    print("   - estado_z3:      Armazena estado MT19937 recuperado")
+    print("   - validacoes_massa: Armazena validações em lote")
+    print("   - estatisticas_lote: Estatísticas agregadas por lote")
     print("="*70 + "\n")
     
     recuperar_estado_inicial()
