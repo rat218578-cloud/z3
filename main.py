@@ -50,7 +50,7 @@ import urllib.parse
 # CONFIGURAÇÕES
 # =============================================================================
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_hW3kU9LZfsgB@ep-summer-meadow-ap9gu9vy-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require")
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://neondb_owner:npg_9mWRy6lskeCT@ep-billowing-feather-apmnvtae-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 # ===== TRÊS APIS CONFIGURADAS =====
 API_DIRETO = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo?page=0&size=10&sort=data.settledAt,desc"
