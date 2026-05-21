@@ -964,7 +964,7 @@ class AgenteNeural:
 
 
 # =============================================================================
-# COLETOR DE API - CORRIGIDO (SUPORTA LISTA EM TODAS APIS)
+# COLETOR DE API - COM BACKOFF EXPONENCIAL (VERSÃO FINAL)
 # =============================================================================
 
 class ColetorAPI:
@@ -972,9 +972,9 @@ class ColetorAPI:
         self.db = db
         self.rodadas_processadas = 0
         self.api_stats = {
-            'API_DIRETO': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_DIRETO},
-            'API_LATEST': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_LATEST},
-            'API_BACKUP': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_BACKUP}
+            'API_DIRETO': {'sucessos': 0, 'erros': 0, 'backoff_until': 0, 'backoff_value': 2, 'url': API_DIRETO},
+            'API_LATEST': {'sucessos': 0, 'erros': 0, 'backoff_until': 0, 'backoff_value': 2, 'url': API_LATEST},
+            'API_BACKUP': {'sucessos': 0, 'erros': 0, 'backoff_until': 0, 'backoff_value': 2, 'url': API_BACKUP}
         }
         self.ultima_rodada_id = None
         
@@ -987,73 +987,54 @@ class ColetorAPI:
     def extrair_dados_rodada(self, dados: Any, api_nome: str) -> Optional[Rodada]:
         """
         Extrai dados de uma rodada - SUPORTA TANTO DICT QUANTO LISTA
-        
-        Se receber uma lista, tenta extrair a primeira rodada
-        Se receber um dict, processa normalmente
         """
         try:
-            # ===== TRATAMENTO PARA LISTA =====
             if isinstance(dados, list):
                 if not dados:
                     return None
-                
-                # Tenta processar cada item da lista
                 for item in dados:
                     rodada = self._extrair_rodada_de_dict(item, api_nome)
                     if rodada:
                         return rodada
                 return None
-            
-            # ===== TRATAMENTO PARA DICT =====
             elif isinstance(dados, dict):
                 return self._extrair_rodada_de_dict(dados, api_nome)
-            
             else:
                 logger.warning(f"Tipo inesperado na API {api_nome}: {type(dados)}")
                 return None
-                
         except Exception as e:
             logger.error(f"Erro extrair dados da {api_nome}: {e}")
             return None
     
     def _extrair_rodada_de_dict(self, dados: dict, api_nome: str) -> Optional[Rodada]:
-        """Extrai rodada de um dicionário"""
         try:
             rodada_id = dados.get('id') or dados.get('_id')
-            
             if not rodada_id:
                 return None
-            
-            # Verifica duplicata
             if rodada_id in IDS_PROCESSADOS or rodada_id in ULTIMO_ID_CONTROLE:
                 return None
             
-            # Extrai os dados (formato da API)
             if 'data' in dados and 'result' in dados.get('data', {}):
                 data_obj = dados['data']
                 result = data_obj.get('result', {})
                 player_dice = result.get('playerDice', {})
                 banker_dice = result.get('bankerDice', {})
-                
                 p1 = player_dice.get('first', 0)
                 p2 = player_dice.get('second', 0)
                 b1 = banker_dice.get('first', 0)
                 b2 = banker_dice.get('second', 0)
             else:
-                # Formato alternativo
                 p1 = dados.get('p1') or dados.get('player1', 0)
                 p2 = dados.get('p2') or dados.get('player2', 0)
                 b1 = dados.get('b1') or dados.get('banker1', 0)
                 b2 = dados.get('b2') or dados.get('banker2', 0)
             
-            # Validação dos dados
             if not all(isinstance(v, int) and 1 <= v <= 6 for v in [p1, p2, b1, b2]):
                 return None
             
             dados_rodada = DadosRodada(p1=p1, p2=p2, b1=b1, b2=b2)
             resultado = dados.get('resultado') or dados_rodada.resultado
             
-            # Marca como processado
             IDS_PROCESSADOS.add(rodada_id)
             ULTIMO_ID_CONTROLE[rodada_id] = True
             
@@ -1065,49 +1046,58 @@ class ColetorAPI:
                 fonte=api_nome,
                 api_origem=api_nome
             )
-            
         except Exception as e:
             logger.error(f"Erro extrair rodada de dict {api_nome}: {e}")
+            return None
+    
+    def fazer_requisicao_com_backoff(self, nome: str, url: str) -> Optional[dict]:
+        now = time.time()
+        if now < self.api_stats[nome]['backoff_until']:
+            return None
+        
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=10)
+            
+            if response.status_code == 200:
+                self.api_stats[nome]['sucessos'] += 1
+                self.api_stats[nome]['backoff_value'] = 2
+                return response.json()
+            
+            elif response.status_code == 429:
+                self.api_stats[nome]['erros'] += 1
+                current_backoff = self.api_stats[nome]['backoff_value']
+                backoff_time = min(current_backoff * 2, 60)
+                self.api_stats[nome]['backoff_until'] = now + backoff_time
+                self.api_stats[nome]['backoff_value'] = backoff_time
+                logger.warning(f"🚫 {nome} - 429! Backoff de {backoff_time}s")
+                return None
+            else:
+                self.api_stats[nome]['erros'] += 1
+                return None
+        except Exception as e:
+            self.api_stats[nome]['erros'] += 1
             return None
     
     def buscar_todas_apis(self) -> List[Rodada]:
         rodadas_encontradas = []
         
         for nome, url in self.APIS:
-            try:
-                response = requests.get(url, headers=HEADERS, timeout=5)
-                
-                if response.status_code == 200:
-                    self.api_stats[nome]['sucessos'] += 1
-                    self.api_stats[nome]['ultimo_uso'] = datetime.now()
-                    
-                    dados = response.json()
-                    
-                    # Para todas as APIs, pode ser lista ou dict
-                    if isinstance(dados, list):
-                        for item in dados:
-                            rodada = self.extrair_dados_rodada(item, nome)
-                            if rodada:
-                                rodadas_encontradas.append(rodada)
-                                logger.debug(f"📥 {nome}: Rodada {rodada.id} coletada")
-                    else:
-                        rodada = self.extrair_dados_rodada(dados, nome)
-                        if rodada:
-                            rodadas_encontradas.append(rodada)
-                            logger.debug(f"📥 {nome}: Rodada {rodada.id} coletada")
-                else:
-                    self.api_stats[nome]['erros'] += 1
-                    logger.warning(f"⚠️ {nome} retornou status {response.status_code}")
-                    
-            except requests.exceptions.Timeout:
-                self.api_stats[nome]['erros'] += 1
-                logger.warning(f"⏰ {nome} - Timeout")
-            except requests.exceptions.ConnectionError as e:
-                self.api_stats[nome]['erros'] += 1
-                logger.warning(f"🔌 {nome} - Erro de conexão: {e}")
-            except Exception as e:
-                self.api_stats[nome]['erros'] += 1
-                logger.error(f"❌ {nome} - Erro: {e}")
+            if time.time() < self.api_stats[nome]['backoff_until']:
+                continue
+            
+            dados = self.fazer_requisicao_com_backoff(nome, url)
+            if dados is None:
+                continue
+            
+            if isinstance(dados, list):
+                for item in dados:
+                    rodada = self.extrair_dados_rodada(item, nome)
+                    if rodada:
+                        rodadas_encontradas.append(rodada)
+            else:
+                rodada = self.extrair_dados_rodada(dados, nome)
+                if rodada:
+                    rodadas_encontradas.append(rodada)
         
         return rodadas_encontradas
     
@@ -1122,7 +1112,6 @@ class ColetorAPI:
             self.rodadas_processadas += 1
             
             self.db.salvar_rodada(rodada)
-            
             logger.info(f"🎲 RODADA #{self.rodadas_processadas}: P={rodada.dados.player_score} B={rodada.dados.banker_score} | {rodada.resultado} | API: {rodada.api_origem}")
             
             if callback_rodada:
@@ -1274,17 +1263,18 @@ def index():
         return f"""
         <!DOCTYPE html>
         <html>
-        <head><title>BAC BO BOT - Agente Z3 + Massa</title></head>
+        <head><title>BAC BO BOT - Agente Z3</title></head>
         <body style="font-family: Arial; background: #0a0a1a; color: #fff; text-align: center; padding: 50px;">
-            <h1>🚀 BAC BO BOT - AGENTE Z3 v1.0</h1>
+            <h1>🚀 BAC BO BOT - AGENTE Z3</h1>
             <p>Sistema de previsão determinística com Z3 Solver</p>
             <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px; flex-wrap: wrap;">
-                <a href="/api/stats" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">📊 Estatísticas</a>
-                <a href="/api/rodadas" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">🎲 Rodadas</a>
-                <a href="/api/previsoes" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">🔮 Previsões</a>
-                <a href="/api/apis" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">📡 APIs</a>
-                <a href="/api/massa" style="background: #ff6b6b; color: #fff; padding: 10px 20px; border-radius: 30px; text-decoration: none;">⚡ Agente Massa</a>
-                <a href="/api/validar" style="background: #ffd93d; color: #0a0a1a; padding: 10px 20px; border-radius: 30px; text-decoration: none;">✅ Validar</a>
+                <a href="/api/stats" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px;">📊 Estatísticas</a>
+                <a href="/api/rodadas" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px;">🎲 Rodadas</a>
+                <a href="/api/previsoes" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px;">🔮 Previsões</a>
+                <a href="/api/apis" style="background: #4ecdc4; color: #0a0a1a; padding: 10px 20px; border-radius: 30px;">📡 APIs</a>
+                <a href="/api/massa" style="background: #ff6b6b; color: #fff; padding: 10px 20px; border-radius: 30px;">⚡ Massa</a>
+                <a href="/api/validar" style="background: #ffd93d; color: #0a0a1a; padding: 10px 20px; border-radius: 30px;">✅ Validar</a>
+                <a href="/api/recover" style="background: #4caf50; color: #fff; padding: 10px 20px; border-radius: 30px;">🔄 Recuperar</a>
             </div>
             <div style="margin-top: 40px; font-size: 12px; color: #666;">
                 <p>Status: <span id="status">🟢 Online</span></p>
@@ -1389,39 +1379,7 @@ def api_recover():
 
 @app.route('/api/evolucao')
 def api_evolucao():
-    conn = db._get_connection()
-    if not conn:
-        return jsonify({'precisao': []})
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT 
-                DATE_TRUNC('hour', timestamp) as hora,
-                COUNT(*) as total,
-                SUM(CASE WHEN acertou THEN 1 ELSE 0 END) as acertos
-            FROM previsoes 
-            WHERE acertou IS NOT NULL
-            GROUP BY DATE_TRUNC('hour', timestamp)
-            ORDER BY hora DESC
-            LIMIT 24
-        """)
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-        
-        evolucao = []
-        for row in rows:
-            precisao = (row[2] / row[1] * 100) if row[1] > 0 else 0
-            evolucao.append({
-                'hora': row[0].isoformat() if row[0] else None,
-                'total': row[1],
-                'acertos': row[2],
-                'precisao': round(precisao, 2)
-            })
-        
-        return jsonify({'success': True, 'data': evolucao})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify({'precisao': [], 'limiar': []})
 
 
 @app.route('/api/performance/confianca')
@@ -1450,7 +1408,8 @@ def api_erros_resumo():
         'data': {
             'visao_geral': {
                 'total_apostas': cache['estatisticas'].get('total', 0),
-                'precisao_global': cache['estatisticas'].get('precisao', 0)
+                'precisao_global': cache['estatisticas'].get('precisao', 0),
+                'total_erros': cache['estatisticas'].get('total', 0) - cache['estatisticas'].get('acertos', 0)
             },
             'recomendacoes': [{'tipo': 'INFO', 'mensagem': 'Sistema operacional com Z3', 'severidade': 'baixa'}]
         }
@@ -1471,7 +1430,7 @@ def main():
     print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (CORRIGIDO)")
     print("="*70)
     print("\n🎯 ARQUITETURA COMPLETA:")
-    print("   1. AGENTE Z3 - Recupera estado do MT19937 (individual)")
+    print("   1. AGENTE Z3 - Recupera estado do MT19937")
     print("   2. AGENTE PREDITOR - Gera previsões determinísticas")
     print("   3. AGENTE VALIDADOR - Verifica previsões contra realidade")
     print("   4. AGENTE EM MASSA - Processa lotes em paralelo")
