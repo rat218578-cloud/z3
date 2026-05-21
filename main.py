@@ -61,7 +61,7 @@ API_LATEST = "https://api-cs.casino.org/svc-evolution-game-events/api/bacbo/late
 PORT = int(os.environ.get("PORT", 5000))
 
 # INTERVALO AUMENTADO PARA EVITAR 429 (Rate Limit)
-UPDATE_INTERVAL = 0.5  # ANTES era 0.3, AGORA 2 segundos
+UPDATE_INTERVAL = 1.0  # ANTES era 0.3, AGORA 2 segundos
 
 BATCH_SIZE = 50
 PARALLEL_WORKERS = 4
