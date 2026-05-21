@@ -64,9 +64,9 @@ PORT = int(os.environ.get("PORT", 5000))
 UPDATE_INTERVAL = 0.3
 
 # CONFIGURAÇÕES DO AGENTE EM MASSA
-BATCH_SIZE = 50  # Tamanho do lote para processamento em massa
-PARALLEL_WORKERS = 4  # Número de workers paralelos
-VALIDATION_BATCH = 20  # Validar últimas 20 rodadas em lote
+BATCH_SIZE = 50
+PARALLEL_WORKERS = 4
+VALIDATION_BATCH = 20
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -159,7 +159,6 @@ class Rodada:
 
 @dataclass
 class ResultadoValidacao:
-    """Resultado da validação em massa"""
     total_validados: int
     acertos: int
     erros: int
@@ -262,14 +261,12 @@ class DatabaseManager:
             conn.close()
     
     def _init_massive_tables(self):
-        """Tabelas adicionais para o Agente em Massa"""
         conn = self._get_connection()
         if not conn:
             return
         try:
             cur = conn.cursor()
             
-            # Tabela de validações em massa
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS validacoes_massa (
                     id SERIAL PRIMARY KEY,
@@ -283,7 +280,6 @@ class DatabaseManager:
                 )
             """)
             
-            # Tabela de estatísticas por lote
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS estatisticas_lote (
                     id SERIAL PRIMARY KEY,
@@ -387,7 +383,6 @@ class DatabaseManager:
             conn.close()
     
     def salvar_validacao_massa(self, batch_id: str, resultado: ResultadoValidacao) -> bool:
-        """Salva resultado de validação em massa"""
         conn = self._get_connection()
         if not conn:
             return False
@@ -427,7 +422,6 @@ class DatabaseManager:
             conn.close()
     
     def get_rodadas_para_validacao(self, limit: int = 50) -> List[Dict]:
-        """Busca rodadas com previsões não validadas para validação em massa"""
         conn = self._get_connection()
         if not conn:
             return []
@@ -463,7 +457,6 @@ class DatabaseManager:
             conn.close()
     
     def atualizar_previsoes_em_massa(self, validacoes: List[Tuple[str, bool]]) -> int:
-        """Atualiza múltiplas previsões de uma vez"""
         conn = self._get_connection()
         if not conn:
             return 0
@@ -545,7 +538,6 @@ class DatabaseManager:
             conn.close()
     
     def get_estatisticas_massa(self) -> Dict:
-        """Retorna estatísticas das validações em massa"""
         conn = self._get_connection()
         if not conn:
             return {}
@@ -713,18 +705,14 @@ class AgenteZ3:
         return previsoes
     
     def prever_rodada_especifica(self, quantidade_avancar: int) -> DadosRodada:
-        """Preve uma rodada específica após avançar N rodadas"""
         if not self.estado_atual:
             return None
         
-        # Salva estado atual
         estado_salvo = list(self.estado_atual)
         pos_salva = self.posicao_atual
         
-        # Avança até a rodada desejada
         self.avancar_estado(quantidade_avancar)
         
-        # Gera previsão da próxima rodada
         rng = list(self.estado_atual)
         idx = self.posicao_atual
         
@@ -739,7 +727,6 @@ class AgenteZ3:
         
         previsao = DadosRodada(p1=dados[0], p2=dados[1], b1=dados[2], b2=dados[3])
         
-        # Restaura estado
         self.estado_atual = estado_salvo
         self.posicao_atual = pos_salva
         
@@ -761,21 +748,10 @@ class AgenteZ3:
 
 
 # =============================================================================
-# AGENTE EM MASSA (NOVO!)
+# AGENTE EM MASSA
 # =============================================================================
 
 class AgenteMassivo:
-    """
-    AGENTE EM MASSA - Processa lotes de rodadas em paralelo
-    
-    Funcionalidades:
-    1. Validação em lote de previsões pendentes
-    2. Processamento paralelo com ThreadPoolExecutor
-    3. Detecção de desvios no estado
-    4. Reconstrução automática do estado se necessário
-    5. Estatísticas agregadas por lote
-    """
-    
     def __init__(self, db: DatabaseManager, agente_z3: AgenteZ3):
         self.db = db
         self.agente_z3 = agente_z3
@@ -789,10 +765,6 @@ class AgenteMassivo:
         }
     
     def validar_previsoes_pendentes(self) -> ResultadoValidacao:
-        """
-        Valida todas as previsões pendentes em lote (EM MASSA)
-        Processa em paralelo para maior eficiência
-        """
         logger.info("[AGENTE MASSA] Iniciando validação em lote...")
         
         pendentes = self.db.get_rodadas_para_validacao(VALIDATION_BATCH)
@@ -803,7 +775,6 @@ class AgenteMassivo:
         
         logger.info(f"[AGENTE MASSA] Encontradas {len(pendentes)} previsões pendentes")
         
-        # Processa em paralelo
         resultados_validacao = []
         
         with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
@@ -819,17 +790,14 @@ class AgenteMassivo:
                 except Exception as e:
                     logger.error(f"[AGENTE MASSA] Erro na validação paralela: {e}")
         
-        # Atualiza banco em massa
         atualizacoes = [(r['previsao_id'], r['acertou']) for r in resultados_validacao]
         self.db.atualizar_previsoes_em_massa(atualizacoes)
         
-        # Calcula estatísticas
         total = len(resultados_validacao)
         acertos = sum(1 for r in resultados_validacao if r['acertou'])
         erros = total - acertos
         precisao = (acertos / total * 100) if total > 0 else 0
         
-        # Verifica desvio (se precisão caiu muito)
         desvio_detectado = precisao < 50 and total >= 10
         
         resultado = ResultadoValidacao(
@@ -841,12 +809,10 @@ class AgenteMassivo:
             mensagem=f"Validados {total} previsões: {acertos} acertos, {erros} erros ({precisao:.1f}%)"
         )
         
-        # Salva no banco
         self.batch_id += 1
         batch_id_str = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self.batch_id}"
         self.db.salvar_validacao_massa(batch_id_str, resultado)
         
-        # Atualiza estatísticas do agente
         self.estatisticas_lote['total_validado'] += total
         self.estatisticas_lote['acertos'] += acertos
         self.estatisticas_lote['erros'] += erros
@@ -863,7 +829,6 @@ class AgenteMassivo:
         return resultado
     
     def _validar_uma_previsao(self, pendente: Dict) -> Dict:
-        """Valida uma única previsão (usado em paralelo)"""
         real = pendente['real']
         previsto = pendente['previsto']
         acertou = (real == previsto)
@@ -875,25 +840,18 @@ class AgenteMassivo:
         }
     
     def _reconstruir_estado(self):
-        """Reconstrói o estado do Z3 quando detecta desvio"""
         logger.info("[AGENTE MASSA] Reconstruindo estado do Z3...")
         
         novo_estado = self.agente_z3.recuperar_estado_dos_dados()
         
         if novo_estado:
             logger.info("[AGENTE MASSA] ✅ Estado reconstruído com sucesso!")
-            # Limpa cache de previsões antigas
             self.agente_z3.previsoes_cache = []
-            # Gera novas previsões
             self.agente_z3.prever_proximas(20)
         else:
             logger.error("[AGENTE MASSA] ❌ Falha na reconstrução do estado!")
     
     def processar_lote_paralelo(self, dados_lote: List[Dict]) -> List[Dict]:
-        """
-        Processa um lote de dados em paralelo
-        Útil para prever múltiplas rodadas futuras simultaneamente
-        """
         logger.info(f"[AGENTE MASSA] Processando lote de {len(dados_lote)} itens em paralelo...")
         
         resultados = []
@@ -915,7 +873,6 @@ class AgenteMassivo:
         return resultados
     
     def _processar_item_paralelo(self, item: Dict) -> Dict:
-        """Processa um item individual em paralelo"""
         offset = item.get('offset', 0)
         previsao = self.agente_z3.prever_rodada_especifica(offset)
         
@@ -926,25 +883,22 @@ class AgenteMassivo:
         }
     
     def validar_em_massa_continuo(self):
-        """Validação contínua em massa (roda em thread separada)"""
         logger.info("[AGENTE MASSA] Iniciando validação contínua em massa...")
         
         while True:
             try:
-                # Valida a cada 30 segundos ou quando acumular 10+ pendentes
                 pendentes = self.db.get_rodadas_para_validacao(10)
                 
                 if len(pendentes) >= 5:
                     self.validar_previsoes_pendentes()
                 
-                time.sleep(30)  # Espera 30 segundos entre validações em massa
+                time.sleep(30)
                 
             except Exception as e:
                 logger.error(f"[AGENTE MASSA] Erro na validação contínua: {e}")
                 time.sleep(60)
     
     def get_estatisticas_massa(self) -> Dict:
-        """Retorna estatísticas do agente em massa"""
         stats_db = self.db.get_estatisticas_massa()
         
         return {
@@ -962,7 +916,7 @@ class AgenteMassivo:
 
 
 # =============================================================================
-# AGENTE PREDITOR NEURAL
+# AGENTE NEURAL
 # =============================================================================
 
 class AgenteNeural:
@@ -1009,7 +963,7 @@ class AgenteNeural:
 
 
 # =============================================================================
-# COLETOR DE API - TRÊS APIS A CADA 0.3s
+# COLETOR DE API - CORRIGIDO
 # =============================================================================
 
 class ColetorAPI:
@@ -1017,11 +971,10 @@ class ColetorAPI:
         self.db = db
         self.rodadas_processadas = 0
         self.api_stats = {
-            'api_direto': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None},
-            'api_latest': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None},
-            'api_backup': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None}
+            'API_DIRETO': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_DIRETO},
+            'API_LATEST': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_LATEST},
+            'API_BACKUP': {'sucessos': 0, 'erros': 0, 'ultimo_uso': None, 'url': API_BACKUP}
         }
-        self.api_atual = 0
         self.ultima_rodada_id = None
         
         self.APIS = [
@@ -1083,7 +1036,7 @@ class ColetorAPI:
         
         for nome, url in self.APIS:
             try:
-                response = requests.get(url, headers=HEADERS, timeout=3)
+                response = requests.get(url, headers=HEADERS, timeout=5)
                 
                 if response.status_code == 200:
                     self.api_stats[nome]['sucessos'] += 1
@@ -1091,22 +1044,31 @@ class ColetorAPI:
                     
                     dados = response.json()
                     
+                    # API_DIRETO retorna lista
                     if nome == 'API_DIRETO' and isinstance(dados, list):
                         for item in dados:
                             rodada = self.extrair_dados_rodada(item, nome)
                             if rodada:
                                 rodadas_encontradas.append(rodada)
+                                logger.debug(f"📥 {nome}: Rodada {rodada.id} coletada")
                     else:
                         rodada = self.extrair_dados_rodada(dados, nome)
                         if rodada:
                             rodadas_encontradas.append(rodada)
+                            logger.debug(f"📥 {nome}: Rodada {rodada.id} coletada")
                 else:
                     self.api_stats[nome]['erros'] += 1
-                    logger.warning(f"{nome} retornou status {response.status_code}")
+                    logger.warning(f"⚠️ {nome} retornou status {response.status_code}")
                     
+            except requests.exceptions.Timeout:
+                self.api_stats[nome]['erros'] += 1
+                logger.warning(f"⏰ {nome} - Timeout")
+            except requests.exceptions.ConnectionError as e:
+                self.api_stats[nome]['erros'] += 1
+                logger.warning(f"🔌 {nome} - Erro de conexão: {e}")
             except Exception as e:
                 self.api_stats[nome]['erros'] += 1
-                logger.error(f"Erro na {nome}: {e}")
+                logger.error(f"❌ {nome} - Erro: {e}")
         
         return rodadas_encontradas
     
@@ -1128,6 +1090,9 @@ class ColetorAPI:
                 callback_rodada(rodada)
         
         return len(rodadas)
+    
+    def get_stats(self) -> Dict:
+        return self.api_stats
 
 
 # =============================================================================
@@ -1159,7 +1124,6 @@ def processar_rodada(rodada: Rodada):
         acertou, previsao_usada = agente_z3.verificar_rodada(rodada.dados)
         
         if previsao_usada:
-            # Registra no agente neural também
             agente_neural.registrar_resultado(previsao_usada, rodada.dados, acertou)
             db.atualizar_acerto_previsao(rodada.id, acertou)
             
@@ -1184,7 +1148,7 @@ def processar_rodada(rodada: Rodada):
     
     cache['estatisticas'] = db.get_estatisticas_previsoes()
     cache['estatisticas']['total_rodadas'] = db.get_total_rodadas()
-    cache['estatisticas']['api_stats'] = coletor.api_stats
+    cache['estatisticas']['api_stats'] = coletor.get_stats()
     cache['estatisticas']['agente_neural'] = agente_neural.get_estatisticas()
     cache['agente_massa'] = agente_massivo.get_estatisticas_massa()
 
@@ -1227,7 +1191,6 @@ def loop_coleta():
                 novas = agente_z3.prever_proximas(20)
                 cache['ultimas_previsoes'] = [p.to_dict() for p in novas]
             
-            # Validação em massa a cada 60 segundos
             if time.time() - ultima_validacao_massa > 60:
                 resultado = agente_massivo.validar_previsoes_pendentes()
                 if resultado.total_validados > 0:
@@ -1249,7 +1212,6 @@ def loop_coleta():
 
 
 def loop_validacao_massa():
-    """Thread separada para validação em massa contínua"""
     logger.info("[AGENTE MASSA] Thread de validação em massa iniciada")
     
     while True:
@@ -1284,6 +1246,7 @@ def index():
                 <li><a href="/api/apis">/api/apis</a> - Status das APIs</li>
                 <li><a href="/api/massa">/api/massa</a> - Estatísticas do Agente em Massa</li>
                 <li><a href="/api/validar">/api/validar</a> - Forçar validação em massa</li>
+                <li><a href="/api/recover">/api/recover</a> - Forçar recuperação do estado</li>
             </ul>
         </body>
         </html>
@@ -1320,11 +1283,14 @@ def api_previsoes():
 
 @app.route('/api/apis')
 def api_apis():
+    """Endpoint para status das 3 APIs"""
+    stats = coletor.get_stats()
     return jsonify({
         'success': True,
         'data': {
-            'apis': coletor.api_stats,
+            'apis': stats,
             'intervalo': UPDATE_INTERVAL,
+            'total_rodadas_processadas': coletor.rodadas_processadas,
             'ultima_atualizacao': datetime.now().isoformat()
         }
     })
@@ -1332,7 +1298,6 @@ def api_apis():
 
 @app.route('/api/massa')
 def api_massa():
-    """Endpoint específico para estatísticas do Agente em Massa"""
     return jsonify({
         'success': True,
         'data': agente_massivo.get_estatisticas_massa(),
@@ -1347,7 +1312,6 @@ def api_massa():
 
 @app.route('/api/validar')
 def api_validar():
-    """Força validação em massa imediata"""
     resultado = agente_massivo.validar_previsoes_pendentes()
     return jsonify({
         'success': True,
@@ -1412,19 +1376,29 @@ def api_evolucao():
         return jsonify({'success': False, 'error': str(e)})
 
 
+@app.route('/api/performance/confianca')
+def api_performance_confianca():
+    """Endpoint para análise de confiança"""
+    return jsonify({
+        'success': True,
+        'data': agente_neural.get_estatisticas(),
+        'timestamp': datetime.now().isoformat()
+    })
+
+
 # =============================================================================
 # MAIN
 # =============================================================================
 
 def main():
     print("\n" + "="*70)
-    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0")
+    print("🚀 BAC BO BOT - AGENTE Z3 + MASSA v1.0 (CORRIGIDO)")
     print("="*70)
     print("\n🎯 ARQUITETURA COMPLETA:")
     print("   1. AGENTE Z3 - Recupera estado do MT19937 (individual)")
     print("   2. AGENTE PREDITOR - Gera previsões determinísticas")
     print("   3. AGENTE VALIDADOR - Verifica previsões contra realidade")
-    print("   4. AGENTE EM MASSA - Processa lotes em paralelo (NOVO!)")
+    print("   4. AGENTE EM MASSA - Processa lotes em paralelo")
     print("   5. AGENTE NEURAL - Ajuste de confiança (complementar)")
     print("\n📡 APIs CONFIGURADAS:")
     print(f"   1. API_DIRETO: {API_DIRETO[:60]}...")
@@ -1437,22 +1411,13 @@ def main():
     print(f"   - Workers paralelos: {PARALLEL_WORKERS}")
     print(f"   - Batch size: {BATCH_SIZE}")
     print(f"   - Validation batch: {VALIDATION_BATCH}")
-    print("\n📊 TABELAS DO BANCO DE DADOS:")
-    print("   - rodadas:        Armazena cada rodada coletada")
-    print("   - previsoes:      Armazena previsões do Z3")
-    print("   - estado_z3:      Armazena estado MT19937 recuperado")
-    print("   - validacoes_massa: Armazena validações em lote (NOVO!)")
-    print("   - estatisticas_lote: Estatísticas agregadas por lote (NOVO!)")
     print("="*70 + "\n")
     
-    # Tenta recuperar estado inicial
     recuperar_estado_inicial()
     
-    # Inicia thread de coleta (0.3s)
     coleta_thread = threading.Thread(target=loop_coleta, daemon=True)
     coleta_thread.start()
     
-    # Inicia thread de validação em massa (a cada 60s)
     massa_thread = threading.Thread(target=loop_validacao_massa, daemon=True)
     massa_thread.start()
     
