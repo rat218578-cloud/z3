@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BAC BO BOT - ML EVOLUTION v5.0</title>
+    <title>BAC BO BOT - AGENTE Z3 v1.0</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -56,74 +55,6 @@
         .stat-value { font-size: 1.8rem; font-weight: 800; }
         .stat-trend { font-size: 0.7rem; margin-top: 5px; color: #4ecdc4; }
         
-        .video-card {
-            background: linear-gradient(135deg, #1e2a3a, #0f172a);
-            border-radius: 30px;
-            padding: 20px;
-            margin-bottom: 30px;
-            border: 1px solid rgba(78,205,196,0.3);
-        }
-        .video-card h2 {
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            letter-spacing: 3px;
-            margin-bottom: 15px;
-            color: rgba(255,255,255,0.6);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .video-container {
-            position: relative;
-            width: 100%;
-            border-radius: 20px;
-            overflow: hidden;
-            background: #000;
-            min-height: 450px;
-            background-image: radial-gradient(circle at center, #1a1a2e 0%, #0a0a1a 100%);
-        }
-        .video-container video {
-            width: 100%;
-            height: 100%;
-            min-height: 450px;
-            object-fit: cover;
-            border-radius: 20px;
-            display: block;
-        }
-        .video-controls {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-        .video-btn {
-            background: rgba(78,205,196,0.2);
-            border: 1px solid rgba(78,205,196,0.5);
-            padding: 8px 20px;
-            border-radius: 30px;
-            color: #fff;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 0.85rem;
-        }
-        .video-btn:hover {
-            background: #4ecdc4;
-            color: #0a0a1a;
-        }
-        .quality-badge {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: rgba(0,0,0,0.7);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.7rem;
-            font-weight: bold;
-            color: #4ecdc4;
-            z-index: 10;
-        }
-        
         .previsao-card { background: linear-gradient(135deg, #1e2a3a, #0f172a); border-radius: 30px; padding: 30px; margin-bottom: 30px; text-align: center; border: 1px solid rgba(78,205,196,0.3); }
         .previsao-card h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 20px; color: rgba(255,255,255,0.6); }
         .previsao-lado { font-size: 5rem; font-weight: 800; margin-bottom: 15px; text-shadow: 0 0 30px currentColor; }
@@ -155,7 +86,7 @@
         .previsao.player { color: #4ecdc4; font-weight: 600; }
         .score { font-family: monospace; font-size: 1.1rem; font-weight: 600; }
         
-        .regras-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+        .regras-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
         .regra-item { background: rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; transition: all 0.3s; }
         .regra-item:hover { background: rgba(78,205,196,0.1); transform: translateX(5px); }
         .previsao-mini { padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; }
@@ -184,7 +115,15 @@
         .erro-card { background: rgba(244,67,54,0.1); border-left: 3px solid #f44336; border-radius: 12px; padding: 12px; margin-bottom: 8px; }
         .recomendacao-card { background: rgba(78,205,196,0.1); border-left: 3px solid #4ecdc4; border-radius: 12px; padding: 12px; margin-bottom: 8px; }
         
+        .badge-danger { background: #f44336; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
+        .badge-success { background: #4caf50; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
+        .badge-warning { background: #ff9800; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
+        
         footer { text-align: center; padding: 20px; color: #666; font-size: 0.8rem; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 30px; }
+        
+        .refresh-info { font-size: 0.7rem; color: #4ecdc4; margin-top: 10px; text-align: center; }
+        .loading { text-align: center; padding: 40px; color: #888; }
+        .empty { text-align: center; padding: 40px; color: #888; }
         
         @media (max-width: 768px) {
             .container { padding: 10px; }
@@ -194,90 +133,43 @@
             .flex-2cols { grid-template-columns: 1fr; }
             .tab-btn { padding: 8px 16px; font-size: 0.85rem; }
         }
-        
-        .loading { text-align: center; padding: 40px; color: #888; }
-        .empty { text-align: center; padding: 40px; color: #888; }
-        .refresh-info { font-size: 0.7rem; color: #4ecdc4; margin-top: 10px; text-align: center; }
-        .badge-danger { background: #f44336; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
-        .badge-success { background: #4caf50; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
-        .badge-warning { background: #ff9800; color: #fff; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; margin-left: 8px; }
-        
-        .stream-status {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            background: rgba(0,0,0,0.5);
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.7rem;
-        }
-        .stream-status.connected { color: #4caf50; }
-        .stream-status.disconnected { color: #f44336; }
-        
-        .permanent-badge {
-            background: linear-gradient(135deg, #4caf50, #2196f3);
-            color: #fff;
-            padding: 2px 8px;
-            border-radius: 20px;
-            font-size: 0.6rem;
-            margin-left: 8px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-dice-d6"></i> BAC BO BOT <span style="font-size: 1rem;">ML EVOLUTION v5.0</span></h1>
-            <p class="subtitle">Baseado em análise de 2.254 rodadas reais | Ensemble de 6 agentes | Aprendizado Adaptativo</p>
+            <h1><i class="fas fa-brain"></i> BAC BO BOT <span style="font-size: 1rem;">AGENTE Z3 v1.0</span></h1>
+            <p class="subtitle">Sistema de Previsão Determinística com Z3 Solver | Recuperação de Estado MT19937</p>
             <div class="badge-container">
                 <div class="status-badge"><span class="status-dot"></span><span id="statusText">Online</span></div>
                 <div class="status-badge"><i class="fas fa-database"></i> <span id="fonteInfo">--</span></div>
-                <div class="versao-badge"><i class="fas fa-brain"></i> ML v5.0</div>
+                <div class="versao-badge"><i class="fas fa-microchip"></i> Z3 + Massa v1.0</div>
             </div>
         </div>
 
         <div class="tabs">
             <button class="tab-btn active" data-tab="dashboard"><i class="fas fa-chart-line"></i> Dashboard</button>
+            <button class="tab-btn" data-tab="previsoes"><i class="fas fa-eye"></i> Previsões</button>
             <button class="tab-btn" data-tab="evolucao"><i class="fas fa-chart-line"></i> Evolução</button>
             <button class="tab-btn" data-tab="analise-erros"><i class="fas fa-exclamation-triangle"></i> Análise de Erros</button>
-            <button class="tab-btn" data-tab="simulacao"><i class="fas fa-chart-simple"></i> Simulação</button>
-            <button class="tab-btn" data-tab="agentes"><i class="fas fa-robot"></i> Agentes ML</button>
+            <button class="tab-btn" data-tab="agentes"><i class="fas fa-robot"></i> Agentes</button>
             <button class="tab-btn" data-tab="rodadas"><i class="fas fa-table"></i> Rodadas</button>
-            <button class="tab-btn" data-tab="regras"><i class="fas fa-list"></i> Regras</button>
+            <button class="tab-btn" data-tab="regras"><i class="fas fa-list"></i> Estado Z3</button>
         </div>
 
+        <!-- DASHBOARD -->
         <div id="tab-dashboard" class="tab-content active">
-            <div class="video-card">
-                <h2><i class="fas fa-video"></i> BAC BO AO VIVO <span class="permanent-badge"><i class="fas fa-infinity"></i> STREAM DIRETO</span></h2>
-                <div class="video-container">
-                    <div class="quality-badge" id="qualityBadge">MASTER AUTO</div>
-                    <!-- VIDEO IGUAL AO DO SITE ORIGINAL -->
-                    <video id="bacboVideo" controls controlslist="nodownload" playsinline preload="auto" class="w-full h-full object-cover" style="width:100%; min-height:450px; background:#000;">
-                        <source src="https://live101.egprom.com/app/30/amlst:bacbor1_bi_auto/playlist.m3u8" type="application/x-mpegURL">
-                    </video>
-                </div>
-                <div class="video-controls">
-                    <button class="video-btn" id="btnReload"><i class="fas fa-sync-alt"></i> Recarregar</button>
-                    <button class="video-btn" id="btnMute"><i class="fas fa-volume-up" id="muteIcon"></i> Som</button>
-                    <button class="video-btn" id="btnFullscreen"><i class="fas fa-expand"></i> Tela Cheia</button>
-                </div>
-                <div class="refresh-info" style="margin-top:10px">
-                    <i class="fas fa-check-circle" style="color:#4caf50"></i> Stream oficial - Mesma URL do site original!
-                    <span id="streamStatus" class="stream-status connected"><i class="fas fa-circle"></i> Conectado</span>
-                </div>
-            </div>
-
             <div class="stats-grid">
                 <div class="stat-card"><div class="stat-icon"><i class="fas fa-bullseye"></i></div><div class="stat-info"><h3>Precisão Global</h3><div class="stat-value" id="precisao">--%</div><div class="stat-trend" id="precisaoTrend"></div></div></div>
-                <div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-info"><h3>Precisão ML</h3><div class="stat-value" id="precisaoML">--%</div><div class="stat-trend">Ensemble + RF</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><i class="fas fa-microchip"></i></div><div class="stat-info"><h3>Estado Z3</h3><div class="stat-value" id="estadoZ3Status">--</div><div class="stat-trend" id="estadoZ3Pos">Posição: --</div></div></div>
                 <div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-simple"></i></div><div class="stat-info"><h3>Apostas</h3><div class="stat-value" id="totalApostas">0</div></div></div>
                 <div class="stat-card"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div class="stat-info"><h3>Acertos</h3><div class="stat-value" id="totalAcertos">0</div></div></div>
                 <div class="stat-card"><div class="stat-icon"><i class="fas fa-history"></i></div><div class="stat-info"><h3>Rodadas</h3><div class="stat-value" id="totalRodadas">0</div></div></div>
-                <div class="stat-card"><div class="stat-icon"><i class="fas fa-sliders-h"></i></div><div class="stat-info"><h3>Limiar Confiança</h3><div class="stat-value" id="limiarConfianca">--%</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-info"><h3>Precisão ML</h3><div class="stat-value" id="precisaoML">--%</div><div class="stat-trend">Últimas 100</div></div></div>
             </div>
 
             <div class="previsao-card">
-                <h2><i class="fas fa-chart-line"></i> ÚLTIMA PREVISÃO ML</h2>
+                <h2><i class="fas fa-chart-line"></i> PRÓXIMA PREVISÃO Z3</h2>
                 <div class="previsao-content">
                     <div class="previsao-lado" id="previsaoLado">---</div>
                     <div class="previsao-regra" id="previsaoRegra">Aguardando dados...</div>
@@ -294,8 +186,8 @@
                     <div class="chart-container"><canvas id="chartPrecisao"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-weight-hanging"></i> Pesos dos Agentes</h2></div>
-                    <div class="chart-container"><canvas id="chartPesos"></canvas></div>
+                    <div class="card-header"><h2><i class="fas fa-weight-hanging"></i> Estatísticas das APIs</h2></div>
+                    <div id="apiStatsContainer"></div>
                 </div>
             </div>
 
@@ -311,23 +203,38 @@
             <div class="refresh-info"><i class="fas fa-sync-alt"></i> Atualizando automaticamente a cada 3 segundos</div>
         </div>
 
+        <!-- PREVISÕES (NOVA ABA) -->
+        <div id="tab-previsoes" class="tab-content">
+            <div class="card">
+                <div class="card-header"><h2><i class="fas fa-eye"></i> PRÓXIMAS 20 RODADAS</h2></div>
+                <div class="tabela-container">
+                    <table>
+                        <thead><tr><th>#</th><th>P1</th><th>P2</th><th>B1</th><th>B2</th><th>P Score</th><th>B Score</th><th>Resultado</th><th>Confiança</th></tr></thead>
+                        <tbody id="tabelaPrevisoes"><tr><td colspan="9" class="loading">Carregando previsões...</td></tr></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- EVOLUÇÃO -->
         <div id="tab-evolucao" class="tab-content">
             <div class="flex-2cols">
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Evolução da Precisão por Período</h2></div>
+                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Evolução da Precisão</h2></div>
                     <div class="chart-container"><canvas id="chartEvolucaoPrecisao"></canvas></div>
                 </div>
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Evolução do Limiar de Confiança</h2></div>
+                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Evolução do Limiar</h2></div>
                     <div class="chart-container"><canvas id="chartEvolucaoLimiar"></canvas></div>
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2><i class="fas fa-weight-hanging"></i> Evolução dos Pesos dos Agentes</h2></div>
-                <div class="chart-container"><canvas id="chartEvolucaoPesos"></canvas></div>
+                <div class="card-header"><h2><i class="fas fa-microchip"></i> Evolução do Estado Z3</h2></div>
+                <div id="estadoZ3Info"></div>
             </div>
         </div>
 
+        <!-- ANÁLISE DE ERROS -->
         <div id="tab-analise-erros" class="tab-content">
             <div class="flex-2cols">
                 <div class="card">
@@ -341,11 +248,11 @@
             </div>
             <div class="flex-2cols">
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> Piores Padrões (Evitar)</h2></div>
+                    <div class="card-header"><h2><i class="fas fa-exclamation-triangle"></i> Piores Padrões</h2></div>
                     <div id="pioresPadroes"></div>
                 </div>
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-check-circle"></i> Melhores Padrões (Priorizar)</h2></div>
+                    <div class="card-header"><h2><i class="fas fa-check-circle"></i> Melhores Padrões</h2></div>
                     <div id="melhoresPadroes"></div>
                 </div>
             </div>
@@ -364,48 +271,25 @@
             </div>
         </div>
 
-        <div id="tab-simulacao" class="tab-content">
-            <div class="card">
-                <div class="card-header"><h2><i class="fas fa-chart-simple"></i> Simulação de Rodadas</h2></div>
-                <div class="simulacao-panel">
-                    <div class="simulacao-input">
-                        <input type="number" id="simulacaoRodadas" placeholder="Rodadas" value="1000">
-                        <input type="number" id="simulacaoAposta" placeholder="Aposta (R$)" value="5" step="5">
-                        <button id="btnSimular"><i class="fas fa-play"></i> Simular</button>
-                        <button id="btnSimularCenarios"><i class="fas fa-chart-bar"></i> Ver Cenários</button>
-                    </div>
-                    <div id="simulacaoResultado"></div>
-                    <div id="cenariosResultado" class="cenarios-grid"></div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header"><h2><i class="fas fa-history"></i> Histórico de Simulações</h2></div>
-                <div class="tabela-container">
-                    <table>
-                        <thead><tr><th>Data</th><th>Rodadas</th><th>Aposta</th><th>Apostas</th><th>Acertos</th><th>Precisão</th><th>Saldo</th><th>Lucro %</th></tr></thead>
-                        <tbody id="tabelaSimulacoes"><tr><td colspan="8" class="loading">Carregando...</td></tr></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
+        <!-- AGENTES -->
         <div id="tab-agentes" class="tab-content">
             <div class="flex-2cols">
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-robot"></i> Performance dos Agentes</h2></div>
-                    <div id="agentesPerformance"></div>
+                    <div class="card-header"><h2><i class="fas fa-robot"></i> Agente em Massa</h2></div>
+                    <div id="agenteMassaStats"></div>
                 </div>
                 <div class="card">
-                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Confiança vs Acerto Real</h2></div>
+                    <div class="card-header"><h2><i class="fas fa-chart-line"></i> Confiança vs Acerto</h2></div>
                     <div id="confiancaAnalise"></div>
                 </div>
             </div>
             <div class="card">
-                <div class="card-header"><h2><i class="fas fa-chart-simple"></i> Comparativo: ML v5.0 vs Regras Manuais</h2></div>
-                <div id="comparativoVersoes"></div>
+                <div class="card-header"><h2><i class="fas fa-chart-simple"></i> Performance dos Agentes</h2></div>
+                <div id="agentesPerformance"></div>
             </div>
         </div>
 
+        <!-- RODADAS -->
         <div id="tab-rodadas" class="tab-content">
             <div class="card">
                 <div class="card-header">
@@ -420,106 +304,49 @@
                 </div>
                 <div class="tabela-container">
                     <table>
-                        <thead><tr><th>Hora</th><th>PLAYER</th><th>BANKER</th><th>Soma</th><th>Resultado</th></tr></thead>
-                        <tbody id="tabelaRodadas"><tr><td colspan="5" class="loading">Carregando...</td></tr></tbody>
+                        <thead><tr><th>Hora</th><th>P1</th><th>P2</th><th>B1</th><th>B2</th><th>P Score</th><th>B Score</th><th>Resultado</th><th>API</th></tr></thead>
+                        <tbody id="tabelaRodadas"><tr><td colspan="9" class="loading">Carregando...</td></tr></tbody>
                     </table>
                 </div>
             </div>
         </div>
 
+        <!-- ESTADO Z3 -->
         <div id="tab-regras" class="tab-content">
             <div class="card">
-                <div class="card-header"><h2><i class="fas fa-list"></i> REGRAS ATIVAS - CAMADA A (Score Exato)</h2></div>
+                <div class="card-header"><h2><i class="fas fa-microchip"></i> CONFIGURAÇÃO Z3</h2></div>
+                <div class="regras-grid" id="configZ3Grid"></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h2><i class="fas fa-list"></i> REGRAS APRENDIDAS (Score Exato)</h2></div>
                 <div class="regras-grid" id="regrasGrid">Carregando...</div>
             </div>
             <div class="card">
-                <div class="card-header"><h2><i class="fas fa-chart-line"></i> REGRAS ATIVAS - CAMADA B (Soma Total)</h2></div>
-                <div class="regras-grid" id="regrasSomaGrid"></div>
+                <div class="card-header"><h2><i class="fas fa-chart-line"></i> ESTATÍSTICAS DAS REGRAS</h2></div>
+                <div id="regrasStats"></div>
             </div>
         </div>
 
         <footer>
-            <p><i class="fas fa-brain"></i> BAC BO BOT ML v5.0 - Ensemble de 6 agentes + Análise de Erros</p>
-            <p>Estratégia: Apostar apenas quando confiança > 65% | Aprendizado automático com análise de erros</p>
-            <p>📡 Fontes: API Real → Dados Simulados (fallback automático) | 🎥 Stream oficial Bac Bo</p>
+            <p><i class="fas fa-microchip"></i> BAC BO BOT - AGENTE Z3 v1.0 | Recuperação de Estado MT19937</p>
+            <p>Estratégia: Previsão determinística baseada em SAT Solver | Processamento em massa a cada 60s</p>
+            <p>📡 APIs: DIRETO | LATEST | BACKUP (0.3s de intervalo)</p>
         </footer>
     </div>
 
     <script>
-        // Configuração do vídeo - URL IGUAL à do site original
-        const STREAM_URL = 'https://live101.egprom.com/app/30/amlst:bacbor1_bi_auto/playlist.m3u8';
-        
-        let videoElement = null;
-        
-        function initVideo() {
-            videoElement = document.getElementById('bacboVideo');
-            
-            // Tenta carregar o vídeo
-            videoElement.load();
-            
-            videoElement.addEventListener('canplay', function() {
-                document.getElementById('streamStatus').innerHTML = '<i class="fas fa-circle"></i> Conectado';
-                document.getElementById('streamStatus').className = 'stream-status connected';
-                videoElement.play().catch(e => console.log('Auto-play:', e));
-            });
-            
-            videoElement.addEventListener('error', function(e) {
-                console.error('Erro no vídeo:', e);
-                document.getElementById('streamStatus').innerHTML = '<i class="fas fa-exclamation-triangle"></i> Erro - Tentando novamente...';
-                document.getElementById('streamStatus').className = 'stream-status disconnected';
-                setTimeout(() => reloadStream(), 5000);
-            });
-            
-            videoElement.addEventListener('stalled', function() {
-                console.log('Stream travado, recarregando...');
-                reloadStream();
-            });
-        }
-        
-        function reloadStream() {
-            if (videoElement) {
-                const wasPlaying = !videoElement.paused;
-                videoElement.load();
-                if (wasPlaying) {
-                    setTimeout(() => videoElement.play().catch(e => console.log('Play after reload:', e)), 1000);
-                }
-            }
-        }
-        
-        function toggleMute() {
-            if (videoElement) {
-                videoElement.muted = !videoElement.muted;
-                const muteIcon = document.getElementById('muteIcon');
-                muteIcon.className = videoElement.muted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
-            }
-        }
-        
-        function toggleFullscreen() {
-            if (videoElement.requestFullscreen) {
-                videoElement.requestFullscreen();
-            } else if (videoElement.webkitRequestFullscreen) {
-                videoElement.webkitRequestFullscreen();
-            }
-        }
-        
         let limiteAtual = 3000;
-        let chartPrecisao, chartPesos, chartEvolucaoPrecisao, chartEvolucaoLimiar, chartEvolucaoPesos, chartErrosPorConfianca;
+        let chartPrecisao, chartEvolucaoPrecisao, chartEvolucaoLimiar, chartErrosPorConfianca;
         
         function initCharts() {
             const ctxPrecisao = document.getElementById('chartPrecisao').getContext('2d');
             chartPrecisao = new Chart(ctxPrecisao, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
-            
-            const ctxPesos = document.getElementById('chartPesos').getContext('2d');
-            chartPesos = new Chart(ctxPesos, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
             
             const ctxEvolPrecisao = document.getElementById('chartEvolucaoPrecisao').getContext('2d');
             chartEvolucaoPrecisao = new Chart(ctxEvolPrecisao, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
             
             const ctxEvolLimiar = document.getElementById('chartEvolucaoLimiar').getContext('2d');
             chartEvolucaoLimiar = new Chart(ctxEvolLimiar, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, max: 100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
-            
-            const ctxEvolPesos = document.getElementById('chartEvolucaoPesos').getContext('2d');
-            chartEvolucaoPesos = new Chart(ctxEvolPesos, { type: 'line', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
             
             const ctxErrosConf = document.getElementById('chartErrosPorConfianca').getContext('2d');
             chartErrosPorConfianca = new Chart(ctxErrosConf, { type: 'bar', data: { labels: [], datasets: [] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#fff' } } }, scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } } } });
@@ -529,23 +356,26 @@
             try {
                 const res = await fetch('/api/stats');
                 const data = await res.json();
-                document.getElementById('precisao').innerHTML = data.precisao + '%';
-                document.getElementById('totalApostas').innerHTML = data.total_apostas;
-                document.getElementById('totalAcertos').innerHTML = data.total_acertos;
-                document.getElementById('totalRodadas').innerHTML = data.total_rodadas;
-                document.getElementById('fonteInfo').innerHTML = data.fonte_ativa || 'local';
+                document.getElementById('precisao').innerHTML = (data.data?.precisao || 0) + '%';
+                document.getElementById('totalApostas').innerHTML = data.data?.total || 0;
+                document.getElementById('totalAcertos').innerHTML = data.data?.acertos || 0;
+                document.getElementById('totalRodadas').innerHTML = data.data?.total_rodadas || 0;
+                document.getElementById('fonteInfo').innerHTML = 'Z3 Ativo';
                 
-                if (data.ml_stats) {
-                    document.getElementById('precisaoML').innerHTML = data.ml_stats.precisao?.toFixed(1) + '%' || '--%';
-                    document.getElementById('limiarConfianca').innerHTML = data.ml_stats.limiar_confianca + '%';
-                    
-                    if (data.ml_stats.pesos_ensemble) {
-                        const agentes = Object.keys(data.ml_stats.pesos_ensemble);
-                        const valores = Object.values(data.ml_stats.pesos_ensemble);
-                        chartPesos.data.labels = agentes;
-                        chartPesos.data.datasets = [{ label: 'Peso do Agente', data: valores, backgroundColor: 'rgba(78,205,196,0.6)', borderRadius: 8 }];
-                        chartPesos.update();
-                    }
+                if (data.estado_z3) {
+                    document.getElementById('estadoZ3Status').innerHTML = data.estado_z3.recuperado ? '✅ RECUPERADO' : '⏳ AGUARDANDO';
+                    document.getElementById('estadoZ3Pos').innerHTML = `Posição: ${data.estado_z3.posicao || 0}`;
+                }
+                
+                if (data.data?.api_stats) {
+                    const apiStats = data.data.api_stats;
+                    const apiHtml = Object.entries(apiStats).map(([nome, stats]) => `
+                        <div class="agente-card">
+                            <span class="agente-nome"><i class="fas fa-plug"></i> ${nome}</span>
+                            <span>✅ ${stats.sucessos} | ❌ ${stats.erros}</span>
+                        </div>
+                    `).join('');
+                    document.getElementById('apiStatsContainer').innerHTML = apiHtml || '<div class="empty">Aguardando dados</div>';
                 }
                 
                 if (data.ultima_previsao) {
@@ -560,19 +390,48 @@
             } catch(e) { console.error(e); }
         }
         
+        async function carregarPrevisoes() {
+            try {
+                const res = await fetch('/api/previsoes');
+                const data = await res.json();
+                const tbody = document.getElementById('tabelaPrevisoes');
+                if (!data.data || !data.data.length) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma previsão disponível</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.data.map((p, idx) => `
+                    <tr>
+                        <td>${idx + 1}</td>
+                        <td class="score">${p.p1}</td>
+                        <td class="score">${p.p2}</td>
+                        <td class="score">${p.b1}</td>
+                        <td class="score">${p.b2}</td>
+                        <td class="score">${p.player_score}</td>
+                        <td class="score">${p.banker_score}</td>
+                        <td class="resultado ${p.resultado.toLowerCase()}">${p.resultado === 'PLAYER' ? '🔵 PLAYER' : p.resultado === 'BANKER' ? '🔴 BANKER' : '🟡 TIE'}</td>
+                        <td>--</td>
+                    </tr>
+                `).join('');
+            } catch(e) { console.error(e); }
+        }
+        
         async function carregarRodadas() {
             try {
                 const res = await fetch(`/api/rodadas?limit=${limiteAtual}`);
-                const rodadas = await res.json();
+                const data = await res.json();
                 const tbody = document.getElementById('tabelaRodadas');
-                if (!rodadas.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma rodada ainda</td></tr>'; return; }
-                tbody.innerHTML = rodadas.slice(0, 50).map(r => `
+                if (!data.data || !data.data.length) { tbody.innerHTML = '<tr><td colspan="9" class="empty">Nenhuma rodada ainda</td></tr>'; return; }
+                tbody.innerHTML = data.data.map(r => `
                     <tr>
-                        <td>${r.data || '--'}</td>
-                        <td class="score">${r.player || 0}</td>
-                        <td class="score">${r.banker || 0}</td>
-                        <td>${r.soma || 0}</td>
+                        <td>${r.data_hora ? new Date(r.data_hora).toLocaleTimeString() : '--'}</td>
+                        <td class="score">${r.p1}</td>
+                        <td class="score">${r.p2}</td>
+                        <td class="score">${r.b1}</td>
+                        <td class="score">${r.b2}</td>
+                        <td class="score">${r.player_score}</td>
+                        <td class="score">${r.banker_score}</td>
                         <td class="resultado ${(r.resultado || '').toLowerCase()}">${r.resultado === 'PLAYER' ? '🔵 PLAYER' : r.resultado === 'BANKER' ? '🔴 BANKER' : '🟡 TIE'}</td>
+                        <td>${r.api_origem || '-'}</td>
                     </tr>
                 `).join('');
             } catch(e) { console.error(e); }
@@ -591,22 +450,40 @@
         async function carregarRegras() {
             try {
                 const res = await fetch('/api/regras');
-                const regras = await res.json();
-                const grid = document.getElementById('regrasGrid');
-                if (!regras.length) { grid.innerHTML = '<p class="empty">Nenhuma regra</p>'; return; }
-                grid.innerHTML = regras.map(r => `<div class="regra-item"><span><i class="fas fa-dice-d6"></i> ${r.player} vs ${r.banker}</span><span class="previsao-mini ${r.previsao.toLowerCase()}">${r.previsao} (${r.confianca}%)</span></div>`).join('');
+                const data = await res.json();
                 
-                const somaGrid = document.getElementById('regrasSomaGrid');
-                somaGrid.innerHTML = `
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 20 + STREAK ≤2</span><span class="previsao-mini player">PLAYER (85%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 20</span><span class="previsao-mini player">PLAYER (66%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> TRIPLO CONTEXTO (15,16,PLAYER)</span><span class="previsao-mini banker">BANKER (89%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 21 + PLAYER</span><span class="previsao-mini banker">BANKER (100%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 21</span><span class="previsao-mini banker">BANKER (66%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 7</span><span class="previsao-mini banker">BANKER (65%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 14</span><span class="previsao-mini banker">BANKER (64%)</span></div>
-                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> SOMA 19</span><span class="previsao-mini player">PLAYER (63%)</span></div>
+                const configGrid = document.getElementById('configZ3Grid');
+                configGrid.innerHTML = `
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Mapeamento</span><span class="previsao-mini player">${data.configuracoes?.map_type || 'Lemire64'}</span></div>
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Ordem</span><span class="previsao-mini player">p1,p2,b1,b2</span></div>
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Offset</span><span class="previsao-mini player">0</span></div>
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Janela</span><span class="previsao-mini player">${data.configuracoes?.janela_tamanho || 20} ocorrências</span></div>
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Confiança Mínima</span><span class="previsao-mini player">${data.configuracoes?.confianca_minima || 65}%</span></div>
+                    <div class="regra-item"><span><i class="fas fa-chart-line"></i> Inversão após</span><span class="previsao-mini player">${data.configuracoes?.erros_para_inversao || 2} erros</span></div>
                 `;
+                
+                const grid = document.getElementById('regrasGrid');
+                if (data.regras && data.regras.length) {
+                    grid.innerHTML = data.regras.slice(0, 30).map(r => `
+                        <div class="regra-item">
+                            <span><i class="fas fa-dice-d6"></i> ${r.player} vs ${r.banker}</span>
+                            <span class="previsao-mini ${r.previsao.toLowerCase()}">${r.previsao} (${r.confianca}%)</span>
+                        </div>
+                    `).join('');
+                } else {
+                    grid.innerHTML = '<div class="empty">Nenhuma regra aprendida ainda</div>';
+                }
+                
+                const statsDiv = document.getElementById('regrasStats');
+                if (data.estatisticas) {
+                    statsDiv.innerHTML = `
+                        <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+                            <div class="stat-card"><div class="stat-info"><h3>Total Regras</h3><div class="stat-value">${data.estatisticas.total_regras || 0}</div></div></div>
+                            <div class="stat-card"><div class="stat-info"><h3>Regras Ativas</h3><div class="stat-value">${data.estatisticas.regras_ativas || 0}</div></div></div>
+                            <div class="stat-card"><div class="stat-info"><h3>Inversões</h3><div class="stat-value">${data.estatisticas.total_inversoes || 0}</div></div></div>
+                        </div>
+                    `;
+                }
             } catch(e) { console.error(e); }
         }
         
@@ -615,76 +492,15 @@
                 const res = await fetch('/api/evolucao');
                 const data = await res.json();
                 
-                if (data.precisao && data.precisao.length) {
-                    chartEvolucaoPrecisao.data.labels = data.precisao.map(p => p.periodo);
-                    chartEvolucaoPrecisao.data.datasets = [{ label: 'Precisão %', data: data.precisao.map(p => p.precisao), borderColor: '#4ecdc4', backgroundColor: 'rgba(78,205,196,0.1)', fill: true, tension: 0.4 }];
+                if (data.data && data.data.length) {
+                    chartEvolucaoPrecisao.data.labels = data.data.map(p => p.hora ? new Date(p.hora).toLocaleTimeString() : p.periodo);
+                    chartEvolucaoPrecisao.data.datasets = [{ label: 'Precisão %', data: data.data.map(p => p.precisao), borderColor: '#4ecdc4', backgroundColor: 'rgba(78,205,196,0.1)', fill: true, tension: 0.4 }];
                     chartEvolucaoPrecisao.update();
                     
-                    chartPrecisao.data.labels = data.precisao.map(p => p.periodo);
-                    chartPrecisao.data.datasets = [{ label: 'Precisão %', data: data.precisao.map(p => p.precisao), borderColor: '#4ecdc4', backgroundColor: 'rgba(78,205,196,0.1)', fill: true, tension: 0.4 }];
+                    chartPrecisao.data.labels = data.data.map(p => p.hora ? new Date(p.hora).toLocaleTimeString() : p.periodo);
+                    chartPrecisao.data.datasets = [{ label: 'Precisão %', data: data.data.map(p => p.precisao), borderColor: '#4ecdc4', backgroundColor: 'rgba(78,205,196,0.1)', fill: true, tension: 0.4 }];
                     chartPrecisao.update();
                 }
-                
-                if (data.limiar && data.limiar.length) {
-                    chartEvolucaoLimiar.data.labels = data.limiar.map(l => l.periodo);
-                    chartEvolucaoLimiar.data.datasets = [{ label: 'Limiar de Confiança', data: data.limiar.map(l => l.limiar), borderColor: '#ff6b6b', backgroundColor: 'rgba(255,107,107,0.1)', fill: true, tension: 0.4 }];
-                    chartEvolucaoLimiar.update();
-                }
-            } catch(e) { console.error(e); }
-        }
-        
-        async function carregarAgentesPerformance() {
-            try {
-                const res = await fetch('/api/performance/agentes');
-                const data = await res.json();
-                const container = document.getElementById('agentesPerformance');
-                if (data.agentes) {
-                    container.innerHTML = `<div style="max-height: 300px; overflow-y: auto;">${Object.entries(data.agentes).map(([nome, info]) => `
-                        <div class="agente-card">
-                            <span class="agente-nome"><i class="fas fa-robot"></i> ${nome}</span>
-                            <span class="agente-peso">Peso: ${info.peso.toFixed(2)} (${info.contribuicao_percentual.toFixed(1)}%)</span>
-                        </div>
-                    `).join('')}</div><div class="simulacao-panel" style="margin-top:20px;text-align:center"><p><i class="fas fa-trophy"></i> <strong>Agente Principal:</strong> ${data.agente_principal || 'N/A'}</p></div>`;
-                }
-                
-                const resConf = await fetch('/api/performance/confianca');
-                const confData = await resConf.json();
-                const confContainer = document.getElementById('confiancaAnalise');
-                if (confData.faixas_confianca) {
-                    confContainer.innerHTML = `<div class="regras-grid">${Object.entries(confData.faixas_confianca).map(([faixa, info]) => `
-                        <div class="regra-item">
-                            <span><i class="fas fa-chart-line"></i> Confiança ${faixa}%</span>
-                            <span class="previsao-mini ${info.precisao > 70 ? 'player' : 'banker'}">${info.precisao.toFixed(1)}% (${info.acertos}/${info.total})</span>
-                        </div>
-                    `).join('')}</div><div class="simulacao-panel" style="margin-top:20px;text-align:center"><p><i class="fas fa-lightbulb"></i> ${confData.recomendacao}</p></div>`;
-                }
-                
-                const resComp = await fetch('/api/comparativo/versoes');
-                const compData = await resComp.json();
-                const compContainer = document.getElementById('comparativoVersoes');
-                compContainer.innerHTML = `
-                    <div class="flex-2cols">
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-brain"></i></div>
-                            <div class="stat-info">
-                                <h3>ML v5.0 (Ensemble)</h3>
-                                <div class="stat-value">${compData.ml_v4?.precisao?.toFixed(1) || 0}%</div>
-                                <div class="stat-trend">${compData.ml_v4?.total_apostas || 0} apostas</div>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon"><i class="fas fa-list"></i></div>
-                            <div class="stat-info">
-                                <h3>Regras Manuais</h3>
-                                <div class="stat-value">${compData.regras_manuais?.precisao?.toFixed(1) || 0}%</div>
-                                <div class="stat-trend">${compData.regras_manuais?.total_apostas || 0} apostas</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="simulacao-panel" style="text-align:center; margin-top:20px;">
-                        <p><i class="fas fa-chart-line"></i> Melhoria: <strong style="color:#4ecdc4;font-size:1.5rem">+${compData.melhoria?.toFixed(1) || 0}%</strong></p>
-                    </div>
-                `;
             } catch(e) { console.error(e); }
         }
         
@@ -698,58 +514,26 @@
                     
                     const statsHtml = `
                         <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
-                            <div class="stat-card">
-                                <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
-                                <div class="stat-info">
-                                    <h3>Total de Erros</h3>
-                                    <div class="stat-value">${data.visao_geral?.total_erros || 0}</div>
-                                    <div class="stat-trend">Taxa: ${data.visao_geral?.taxa_erro_global?.toFixed(1) || 0}%</div>
-                                </div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-icon"><i class="fas fa-chart-line"></i></div>
-                                <div class="stat-info">
-                                    <h3>Precisão Global</h3>
-                                    <div class="stat-value">${data.visao_geral?.precisao_global?.toFixed(1) || 0}%</div>
-                                    <div class="stat-trend">${data.visao_geral?.total_apostas || 0} apostas</div>
-                                </div>
-                            </div>
+                            <div class="stat-card"><div class="stat-info"><h3>Total de Erros</h3><div class="stat-value">${data.visao_geral?.total_erros || 0}</div><div class="stat-trend">Taxa: ${data.visao_geral?.taxa_erro_global?.toFixed(1) || 0}%</div></div></div>
+                            <div class="stat-card"><div class="stat-info"><h3>Precisão Global</h3><div class="stat-value">${data.visao_geral?.precisao_global?.toFixed(1) || 0}%</div><div class="stat-trend">${data.visao_geral?.total_apostas || 0} apostas</div></div></div>
                         </div>
                     `;
                     document.getElementById('estatisticasErros').innerHTML = statsHtml;
                     
                     if (data.piores_padroes && data.piores_padroes.length) {
-                        document.getElementById('pioresPadroes').innerHTML = data.piores_padroes.map(p => `
-                            <div class="erro-card">
-                                <strong><i class="fas fa-ban"></i> ${p.padrao}</strong>
-                                <span class="badge-danger">${p.taxa_erro?.toFixed(1)}% erro</span>
-                                <div class="stat-trend">${p.total_ocorrencias} ocorrências</div>
-                            </div>
-                        `).join('');
+                        document.getElementById('pioresPadroes').innerHTML = data.piores_padroes.map(p => `<div class="erro-card"><strong><i class="fas fa-ban"></i> ${p.padrao}</strong><span class="badge-danger">${p.taxa_erro?.toFixed(1)}% erro</span></div>`).join('');
                     } else {
-                        document.getElementById('pioresPadroes').innerHTML = '<div class="empty">Nenhum padrão problemático identificado</div>';
+                        document.getElementById('pioresPadroes').innerHTML = '<div class="empty">Nenhum padrão problemático</div>';
                     }
                     
                     if (data.melhores_padroes && data.melhores_padroes.length) {
-                        document.getElementById('melhoresPadroes').innerHTML = data.melhores_padroes.map(p => `
-                            <div class="recomendacao-card">
-                                <strong><i class="fas fa-check-circle"></i> ${p.padrao}</strong>
-                                <span class="badge-success">${(100 - p.taxa_erro).toFixed(1)}% acerto</span>
-                                <div class="stat-trend">${p.total_ocorrencias} ocorrências</div>
-                            </div>
-                        `).join('');
+                        document.getElementById('melhoresPadroes').innerHTML = data.melhores_padroes.map(p => `<div class="recomendacao-card"><strong><i class="fas fa-check-circle"></i> ${p.padrao}</strong><span class="badge-success">${(100 - p.taxa_erro).toFixed(1)}% acerto</span></div>`).join('');
                     } else {
-                        document.getElementById('melhoresPadroes').innerHTML = '<div class="empty">Aguardando mais dados</div>';
+                        document.getElementById('melhoresPadroes').innerHTML = '<div class="empty">Aguardando dados</div>';
                     }
                     
                     if (data.recomendacoes && data.recomendacoes.length) {
-                        document.getElementById('recomendacoes').innerHTML = data.recomendacoes.map(r => `
-                            <div class="recomendacao-card">
-                                <i class="fas fa-lightbulb"></i> <strong>${r.tipo}</strong><br>
-                                ${r.mensagem}
-                                <span class="badge-${r.severidade === 'alta' ? 'danger' : r.severidade === 'media' ? 'warning' : 'success'}">${r.severidade}</span>
-                            </div>
-                        `).join('');
+                        document.getElementById('recomendacoes').innerHTML = data.recomendacoes.map(r => `<div class="recomendacao-card"><i class="fas fa-lightbulb"></i> <strong>${r.tipo}</strong><br>${r.mensagem}</div>`).join('');
                     }
                 }
                 
@@ -757,100 +541,51 @@
                 const errosData = await resErros.json();
                 if (errosData.success && errosData.data && errosData.data.erros) {
                     const tbody = document.getElementById('tabelaUltimosErros');
-                    tbody.innerHTML = errosData.data.erros.map(e => `
-                        <tr class="errou">
-                            <td>${new Date(e.created_at).toLocaleString()} </td>
-                            <td class="previsao ${e.previsao?.toLowerCase()}">${e.previsao}</td>
-                            <td class="resultado ${e.resultado?.toLowerCase()}">${e.resultado}</td>
-                            <td>${e.confianca}%</td>
-                            <td>${e.streak || 0}</td>
-                            <td><span class="badge-warning">${e.padrao || '-'}</span></td>
-                        </tr>
-                    `).join('');
+                    tbody.innerHTML = errosData.data.erros.map(e => `<tr class="errou"><td>${new Date(e.created_at).toLocaleString()}</td><td class="previsao ${e.previsao?.toLowerCase()}">${e.previsao}</td><td class="resultado ${e.resultado?.toLowerCase()}">${e.resultado}</td><td>${e.confianca}%</td><td>${e.streak || 0}</td><td><span class="badge-warning">${e.padrao || '-'}</span></td></tr>`).join('');
                 }
-                
-                const resConfErros = await fetch('/api/erros/por_confianca?min_amostras=3');
-                const confErrosData = await resConfErros.json();
-                if (confErrosData.success && confErrosData.data && confErrosData.data.faixas) {
-                    chartErrosPorConfianca.data.labels = confErrosData.data.faixas.map(f => f.faixa);
-                    chartErrosPorConfianca.data.datasets = [
-                        { label: 'Taxa de Erro (%)', data: confErrosData.data.faixas.map(f => f.taxa_erro), backgroundColor: 'rgba(244,67,54,0.6)', borderRadius: 8 },
-                        { label: 'Total de Apostas', data: confErrosData.data.faixas.map(f => f.total_apostas), backgroundColor: 'rgba(78,205,196,0.6)', borderRadius: 8, yAxisID: 'y1' }
-                    ];
-                    chartErrosPorConfianca.update();
-                }
-                
-            } catch(e) { console.error('Erro ao carregar análise de erros:', e); }
-        }
-        
-        async function carregarSimulacoes() {
-            try {
-                const res = await fetch('/api/simulacoes');
-                const simulacoes = await res.json();
-                const tbody = document.getElementById('tabelaSimulacoes');
-                if (!simulacoes.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">Nenhuma simulação ainda</td></tr>'; return; }
-                tbody.innerHTML = simulacoes.map(s => `
-                    <tr>
-                        <td>${new Date(s.timestamp).toLocaleString()}</td>
-                        <td>${s.rodadas}</td>
-                        <td>R$ ${s.aposta}</td>
-                        <td>${s.total_apostas}</td>
-                        <td>${s.acertos}</td>
-                        <td>${s.precisao}%</td>
-                        <td class="${s.saldo >= 0 ? 'acertou' : 'errou'}">R$ ${s.saldo}</td>
-                        <td class="${s.lucro >= 0 ? 'acertou' : 'errou'}">${s.lucro}%</td>
-                    </tr>
-                `).join('');
             } catch(e) { console.error(e); }
         }
         
-        async function simular(rodadas, aposta) {
-            const resultadoDiv = document.getElementById('simulacaoResultado');
-            resultadoDiv.innerHTML = '<div class="loading">Simulando...</div>';
+        async function carregarAgentes() {
             try {
-                const res = await fetch(`/api/simular?limite=${rodadas}&aposta=${aposta}`);
-                const data = await res.json();
-                if (data.erro) { resultadoDiv.innerHTML = `<div class="empty">${data.erro}</div>`; return; }
-                resultadoDiv.innerHTML = `
-                    <div class="simulacao-panel">
-                        <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
-                            <div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-info"><h3>Precisão</h3><div class="stat-value">${data.precisao?.toFixed(1)}%</div></div></div>
-                            <div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-simple"></i></div><div class="stat-info"><h3>Apostas</h3><div class="stat-value">${data.apostas_realizadas}</div></div></div>
-                            <div class="stat-card"><div class="stat-icon"><i class="fas fa-check-circle"></i></div><div class="stat-info"><h3>Acertos</h3><div class="stat-value">${data.acertos}</div></div></div>
-                            <div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-info"><h3>Saldo Final</h3><div class="stat-value ${data.saldo_final >= 0 ? 'acertou' : 'errou'}">R$ ${data.saldo_final}</div><div class="stat-trend">Lucro: ${data.lucro_percentual?.toFixed(1)}%</div></div></div>
+                const resMassa = await fetch('/api/massa');
+                const massaData = await resMassa.json();
+                
+                if (massaData.success && massaData.data) {
+                    const data = massaData.data;
+                    document.getElementById('agenteMassaStats').innerHTML = `
+                        <div class="stats-grid" style="grid-template-columns:repeat(2,1fr)">
+                            <div class="stat-card"><div class="stat-info"><h3>Total Validado</h3><div class="stat-value">${data.em_massa?.total_validado_agente || 0}</div></div></div>
+                            <div class="stat-card"><div class="stat-info"><h3>Precisão</h3><div class="stat-value">${data.em_massa?.precisao_agente || 0}%</div></div></div>
                         </div>
-                    </div>
+                        <div class="agente-card"><span>Workers Paralelos</span><span>${massaData.configuracoes?.parallel_workers || 4}</span></div>
+                        <div class="agente-card"><span>Validação em Massa</span><span>A cada 60s</span></div>
+                    `;
+                }
+                
+                const resConf = await fetch('/api/performance/confianca');
+                const confData = await resConf.json();
+                if (confData.faixas_confianca) {
+                    document.getElementById('confiancaAnalise').innerHTML = `<div class="regras-grid">${Object.entries(confData.faixas_confianca).slice(0,5).map(([faixa, info]) => `<div class="regra-item"><span>Confiança ${faixa}%</span><span class="previsao-mini ${info.precisao > 70 ? 'player' : 'banker'}">${info.precisao.toFixed(1)}%</span></div>`).join('')}</div>`;
+                }
+                
+                document.getElementById('agentesPerformance').innerHTML = `
+                    <div class="agente-card"><span><i class="fas fa-microchip"></i> Agente Z3</span><span>Recuperação de Estado</span></div>
+                    <div class="agente-card"><span><i class="fas fa-layer-group"></i> Agente em Massa</span><span>Processamento em Lote</span></div>
+                    <div class="agente-card"><span><i class="fas fa-check-circle"></i> Agente Validador</span><span>Verificação Contínua</span></div>
                 `;
-            } catch(e) { resultadoDiv.innerHTML = '<div class="empty">Erro na simulação</div>'; }
-        }
-        
-        async function simularCenarios() {
-            const cenariosDiv = document.getElementById('cenariosResultado');
-            cenariosDiv.innerHTML = '<div class="loading">Carregando cenários...</div>';
-            try {
-                const res = await fetch(`/api/simular/cenarios?limite=500`);
-                const data = await res.json();
-                if (data.erro) { cenariosDiv.innerHTML = `<div class="empty">${data.erro}</div>`; return; }
-                cenariosDiv.innerHTML = data.cenarios.map(c => `
-                    <div class="cenario-card">
-                        <div class="aposta">R$ ${c.aposta}</div>
-                        <div class="saldo ${c.saldo_final >= 0 ? 'positivo' : 'negativo'}">R$ ${c.saldo_final}</div>
-                        <div class="precisao">${c.precisao?.toFixed(1)}% acerto</div>
-                        <div class="lucro">${c.lucro_percentual?.toFixed(1)}% lucro</div>
-                    </div>
-                `).join('');
-            } catch(e) { cenariosDiv.innerHTML = '<div class="empty">Erro ao carregar cenários</div>'; }
+            } catch(e) { console.error(e); }
         }
         
         function atualizarTudo() {
             atualizarStats();
+            carregarPrevisoes();
             carregarRodadas();
             carregarHistorico();
             carregarRegras();
             carregarEvolucao();
-            carregarAgentesPerformance();
-            carregarSimulacoes();
             carregarAnaliseErros();
+            carregarAgentes();
         }
         
         document.querySelectorAll('.filter-btn').forEach(btn => {
@@ -869,40 +604,16 @@
                 btn.classList.add('active');
                 document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
                 
-                if (btn.dataset.tab === 'analise-erros') {
-                    carregarAnaliseErros();
-                }
+                if (btn.dataset.tab === 'analise-erros') carregarAnaliseErros();
+                if (btn.dataset.tab === 'agentes') carregarAgentes();
+                if (btn.dataset.tab === 'previsoes') carregarPrevisoes();
+                if (btn.dataset.tab === 'regras') carregarRegras();
             });
         });
         
-        document.getElementById('btnSimular').addEventListener('click', () => {
-            const rodadas = parseInt(document.getElementById('simulacaoRodadas').value) || 1000;
-            const aposta = parseFloat(document.getElementById('simulacaoAposta').value) || 5;
-            simular(rodadas, aposta);
-        });
-        
-        document.getElementById('btnSimularCenarios').addEventListener('click', simularCenarios);
-        
-        document.getElementById('btnReload').addEventListener('click', reloadStream);
-        document.getElementById('btnMute').addEventListener('click', toggleMute);
-        document.getElementById('btnFullscreen').addEventListener('click', toggleFullscreen);
-        
-        // Inicializar
         initCharts();
-        initVideo();
         atualizarTudo();
         setInterval(atualizarTudo, 3000);
-        
-        // Recarregar stream a cada 60 segundos para manter vivo
-        setInterval(() => {
-            if (videoElement && videoElement.paused === false) {
-                console.log('🔄 Mantendo stream ativo...');
-                // Força um pequeno reload se necessário
-                if (videoElement.buffered.length === 0 || videoElement.readyState < 2) {
-                    reloadStream();
-                }
-            }
-        }, 60000);
     </script>
 </body>
 </html>
